@@ -5,3 +5,21 @@ authors = ["Yusuf Bera Ertan <y.bera003.06@protonmail.com>"]
 edition = "2018"
 
 [dependencies]
+tokio = { version = "1.4", features = ["rt-multi-thread", "macros", "parking_lot"] }
+serenity = { version = "0.10", optional = true, default-features = false, features = [
+    "http",
+    "client",
+    "cache",
+    "model",
+    "utils",
+    "rustls_backend",
+    "gateway",
+    "builder",
+] }
+rand = "0.8"
+ctrlc = { version = "3.1", features = ["termination"] }
+markov = "1.1"
+
+[features]
+default = ["discord"]
+discord = ["serenity"]

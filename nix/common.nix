@@ -38,7 +38,7 @@ in
     with pkgs;
     {
       buildInputs = [ /* Add runtime dependencies here */ ];
-      nativeBuildInputs = [ /* Add compile time dependencies here */ ];
+      nativeBuildInputs = [ binutils ];
     };
 
   /* Put env variables here, like so:
