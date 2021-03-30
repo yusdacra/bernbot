@@ -1,6 +1,7 @@
 use bernbot::perr;
 use markov::Chain;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use serenity::{
     async_trait,
     client::{Client, Context, EventHandler},
@@ -8,33 +9,71 @@ use serenity::{
     http::AttachmentType,
     model::{
         channel::Message,
-        id::{ChannelId, GuildId},
         prelude::{Activity, Ready},
     },
+    utils::ContentSafeOptions,
 };
-use std::{borrow::Cow, collections::HashMap, convert::TryInto, env};
+use std::{borrow::Cow, collections::HashMap, env};
+
+#[derive(Debug, Deserialize, Serialize)]
+struct MListen {
+    chan_id: u64,
+    probability: f64,
+    chain: Chain<String>,
+}
+
+impl MListen {
+    async fn save(&self, guild_id: u64) {
+        tokio::fs::write(
+            format!("data/{}", guild_id),
+            bincode::serialize(self).unwrap(),
+        )
+        .await
+        .unwrap();
+    }
+}
+
+impl Default for MListen {
+    fn default() -> Self {
+        Self {
+            chan_id: 0,
+            probability: 5.0,
+            chain: Chain::new(),
+        }
+    }
+}
 
 struct Handler {
-    no_insult_count: Mutex<HashMap<GuildId, u8>>,
-    last_insult_msg: Mutex<HashMap<ChannelId, Message>>,
-    mchain: Mutex<HashMap<GuildId, Chain<String>>>,
-    mlisten: Mutex<HashMap<GuildId, ChannelId>>,
+    insult_data: Mutex<HashMap<u64, (u8, Option<Message>)>>,
+    mchain: Mutex<HashMap<u64, MListen>>,
     poem_chain: Chain<String>,
 }
 
 impl Default for Handler {
     fn default() -> Self {
         Self {
-            no_insult_count: HashMap::new().into(),
-            last_insult_msg: HashMap::new().into(),
+            insult_data: HashMap::new().into(),
             mchain: HashMap::new().into(),
-            mlisten: HashMap::new().into(),
             poem_chain: {
                 let mut chain = Chain::new();
                 chain.feed_str(&bernbot::POEMS.split('-').collect::<String>());
                 chain
             },
         }
+    }
+}
+
+impl Handler {
+    async fn unrecognised_command(&self, ctx: &Context, msg: &Message, cmd: &str, channel_id: u64) {
+        perr!(
+            msg.reply(ctx, bernbot::unrecognised_command(cmd)).await,
+            |msg| {
+                self.insult_data
+                    .lock()
+                    .await
+                    .insert(channel_id, (0, Some(msg)));
+            }
+        )
     }
 }
 
@@ -46,7 +85,8 @@ impl EventHandler for Handler {
     }
 
     async fn message(&self, ctx: Context, new_message: Message) {
-        let guild_id = new_message.guild_id.unwrap();
+        let guild_id = new_message.guild_id.unwrap().0;
+        let channel_id = new_message.channel_id.0;
         if let Some(args) = new_message.content.strip_prefix(bernbot::PREFIX) {
             let mut args = args.split_whitespace();
             if let Some(cmd) = args.next() {
@@ -55,51 +95,100 @@ impl EventHandler for Handler {
                         let output = bernbot::process_poem_command(args, &self.poem_chain);
                         perr!(new_message.reply(&ctx, output).await);
                     }
-                    "fuckyou" => {
-                        perr!(send_fuckyou(&ctx, &new_message).await);
-                    }
-                    "listentohere" => {
-                        self.mlisten
-                            .lock()
-                            .await
-                            .insert(guild_id, new_message.channel_id);
-                        perr!(
-                            new_message
-                                .reply(
-                                    &ctx,
-                                    "This channel will be used to post \"random\" messages."
-                                )
-                                .await
-                        );
-                        tokio::fs::create_dir_all(format!("data/{}", guild_id.0))
-                            .await
-                            .unwrap();
-                        tokio::fs::write(
-                            format!("data/{}/mlisten", guild_id.0),
-                            new_message.channel_id.0.to_be_bytes(),
-                        )
-                        .await
-                        .unwrap()
+                    "fuckyou" => perr!(send_fuckyou(&ctx, &new_message).await),
+                    "listen" => {
+                        if let Some(subcmd) = args.next() {
+                            match subcmd {
+                                "here" => {
+                                    let mut lock = self.mchain.lock().await;
+                                    let mut mlisten = lock.entry(guild_id).or_default();
+                                    mlisten.chan_id = channel_id;
+                                    perr!(
+                                        new_message
+                                            .reply(
+                                                &ctx,
+                                                "This channel will be used to post \"random\" messages."
+                                            )
+                                            .await
+                                    );
+                                    mlisten.save(guild_id).await;
+                                }
+                                "setprob" => {
+                                    let prob = args
+                                        .next()
+                                        .map_or(5.0, |c| c.parse::<f64>().unwrap_or(5.0))
+                                        .min(100.0)
+                                        .max(0.0);
+                                    if let Some(mlisten) =
+                                        self.mchain.lock().await.get_mut(&guild_id)
+                                    {
+                                        mlisten.probability = prob;
+                                        perr!(
+                                            new_message
+                                                .reply(
+                                                    &ctx,
+                                                    format!("Set probability to {}%", prob)
+                                                )
+                                                .await
+                                        );
+                                        mlisten.save(guild_id).await;
+                                    } else {
+                                        perr!(
+                                            new_message
+                                                .reply(
+                                                    &ctx,
+                                                    "First set a channel to listen in, dumb human."
+                                                )
+                                                .await
+                                        );
+                                    }
+                                }
+                                "getprob" => {
+                                    if let Some(mlisten) = self.mchain.lock().await.get(&guild_id) {
+                                        perr!(
+                                            new_message
+                                                .reply(
+                                                    &ctx,
+                                                    format!(
+                                                        "Probability is {}%",
+                                                        mlisten.probability
+                                                    )
+                                                )
+                                                .await
+                                        );
+                                    } else {
+                                        perr!(
+                                            new_message
+                                                .reply(
+                                                    &ctx,
+                                                    "First set a channel to listen in, dumb human."
+                                                )
+                                                .await
+                                        );
+                                    }
+                                }
+                                _ => {
+                                    self.unrecognised_command(
+                                        &ctx,
+                                        &new_message,
+                                        subcmd,
+                                        channel_id,
+                                    )
+                                    .await
+                                }
+                            }
+                        }
                     }
                     _ => {
-                        perr!(
-                            new_message
-                                .reply(&ctx, bernbot::unrecognised_command(cmd))
-                                .await,
-                            |msg| {
-                                self.last_insult_msg
-                                    .lock()
-                                    .await
-                                    .insert(new_message.channel_id, msg);
-                            }
-                        );
+                        self.unrecognised_command(&ctx, &new_message, cmd, channel_id)
+                            .await
                     }
                 }
             }
         } else {
             if let Some(ref_msg) = new_message.referenced_message.as_ref() {
-                if let Some(last_ins_msg) =
-                    self.last_insult_msg.lock().await.get(&ref_msg.channel_id)
+                if let Some((_, Some(last_ins_msg))) =
+                    self.insult_data.lock().await.get(&ref_msg.channel_id.0)
                 {
                     if new_message.content.contains("fuck you") && ref_msg.id == last_ins_msg.id {
                         perr!(send_fuckyou(&ctx, &new_message).await);
@@ -108,44 +197,45 @@ impl EventHandler for Handler {
             }
 
             if let Some(guild_id) = new_message.guild_id {
-                let mut ins_map_lock = self.no_insult_count.lock().await;
-                let no_insult_count = ins_map_lock.entry(guild_id).or_insert(1);
-                if rand::thread_rng().gen_bool(0.2 * (*no_insult_count as f64) / 100.0) {
+                let mut lock = self.insult_data.lock().await;
+                let (no_insult_count, msg) = lock.entry(guild_id.0).or_insert((1, None));
+                if rand::thread_rng().gen_bool(0.05 * (*no_insult_count as f64) / 100.0) {
                     *no_insult_count = 1;
                     let res = new_message
                         .reply(&ctx, bernbot::choose_random_insult())
                         .await;
-                    perr!(res, |msg| {
-                        self.last_insult_msg
-                            .lock()
-                            .await
-                            .insert(new_message.channel_id, msg);
+                    perr!(res, |msgg| {
+                        *msg = Some(msgg);
                     });
                 } else {
                     *no_insult_count = no_insult_count.saturating_add(1);
                 }
             }
 
-            if let Some(chan_id) = self.mlisten.lock().await.get(&guild_id) {
-                if chan_id == &new_message.channel_id {
-                    let mut chains_lock = self.mchain.lock().await;
-                    let chain = chains_lock.entry(guild_id).or_insert_with(Chain::new);
-                    chain.feed_str(&new_message.content);
-                    if rand::thread_rng().gen_bool(5.0 / 100.0) {
-                        if let Some(chan) = new_message
-                            .guild(&ctx)
-                            .await
-                            .map(|mut g| g.channels.remove(chan_id))
-                            .flatten()
-                        {
-                            let mut message = chain.generate_str();
-                            message.truncate(250);
-                            perr!(chan.send_message(&ctx, |msg| msg.content(message)).await);
+            if new_message.author.id != ctx.cache.current_user_id().await {
+                if let Some(mlisten) = self.mchain.lock().await.get_mut(&guild_id) {
+                    if mlisten.chan_id == channel_id {
+                        mlisten.chain.feed_str(&new_message.content);
+                        if rand::thread_rng().gen_bool(mlisten.probability / 100.0) {
+                            if let Some(chan) = new_message
+                                .guild(&ctx)
+                                .await
+                                .map(|mut g| g.channels.remove(&mlisten.chan_id.into()))
+                                .flatten()
+                            {
+                                let mut message = mlisten.chain.generate_str();
+                                message.truncate(250);
+                                let message = serenity::utils::content_safe(
+                                    &ctx,
+                                    &message,
+                                    &ContentSafeOptions::default(),
+                                )
+                                .await;
+                                perr!(chan.send_message(&ctx, |msg| msg.content(message)).await);
+                            }
                         }
+                        mlisten.save(guild_id).await;
                     }
-                    chain
-                        .save(format!("data/{}/mlisten_data", guild_id.0))
-                        .unwrap();
                 }
             }
         }
@@ -155,27 +245,17 @@ impl EventHandler for Handler {
 fn main() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
-    let mut mlisten_map = HashMap::new();
     let mut mchain_map = HashMap::new();
 
     std::fs::create_dir_all("data").unwrap();
     let dirs = std::fs::read_dir("data").unwrap().flatten();
     for dir in dirs {
-        if dir.metadata().unwrap().is_dir() {
-            let guild_id: u64 = dir.file_name().to_string_lossy().parse().unwrap();
-            let mlisten = std::fs::read(dir.path().join("mlisten"))
-                .ok()
-                .map(|b| ChannelId(u64::from_be_bytes(b.try_into().unwrap())))
-                .unwrap();
-            let mlisten_data =
-                Chain::load(dir.path().join("mlisten_data")).unwrap_or_else(|_| Chain::new());
-            mlisten_map.insert(guild_id.into(), mlisten);
-            mchain_map.insert(guild_id.into(), mlisten_data);
-        }
+        let guild_id: u64 = dir.file_name().to_string_lossy().parse().unwrap();
+        let mlisten: MListen = bincode::deserialize(&std::fs::read(dir.path()).unwrap()).unwrap();
+        mchain_map.insert(guild_id, mlisten);
     }
 
     let handler = Handler {
-        mlisten: mlisten_map.into(),
         mchain: mchain_map.into(),
         ..Handler::default()
     };
