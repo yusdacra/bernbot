@@ -163,25 +163,26 @@ impl EventHandler for Handler {
                 }
             }
 
-            let (no_insult_count, last_ins_msg) = lock
-                .entry(guild_id)
-                .or_insert((NonZeroU8::new(1).unwrap(), None));
-            if rand::thread_rng().gen_bool(0.05 * (no_insult_count.get() as f64) / 100.0) {
-                *no_insult_count = NonZeroU8::new(1).unwrap();
-                perr!(
-                    new_message
-                        .reply(&ctx, bernbot::choose_random_insult())
-                        .await,
-                    |msg| {
-                        *last_ins_msg = Some(msg);
-                    }
-                );
-            } else {
-                *no_insult_count = NonZeroU8::new(no_insult_count.get().saturating_add(1)).unwrap();
-            }
-            drop(lock);
-
             if new_message.author.id != ctx.cache.current_user_id().await {
+                let (no_insult_count, last_ins_msg) = lock
+                    .entry(guild_id)
+                    .or_insert((NonZeroU8::new(1).unwrap(), None));
+                if rand::thread_rng().gen_bool(0.05 * (no_insult_count.get() as f64) / 100.0) {
+                    *no_insult_count = NonZeroU8::new(1).unwrap();
+                    perr!(
+                        new_message
+                            .reply(&ctx, bernbot::choose_random_insult())
+                            .await,
+                        |msg| {
+                            *last_ins_msg = Some(msg);
+                        }
+                    );
+                } else {
+                    *no_insult_count =
+                        NonZeroU8::new(no_insult_count.get().saturating_add(1)).unwrap();
+                }
+                drop(lock);
+
                 if let Some(mlisten) = self.mchain.lock().await.get_mut(&guild_id) {
                     if mlisten.chan_id == channel_id {
                         mlisten.chain.feed_str(&new_message.content);
