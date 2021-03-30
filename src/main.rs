@@ -47,6 +47,7 @@ struct Handler {
     insult_data: Mutex<HashMap<u64, (NonZeroU8, Option<Message>)>>,
     mchain: Mutex<HashMap<u64, MListen>>,
     poem_chain: Chain<String>,
+    prefix: &'static str,
 }
 
 impl Default for Handler {
@@ -59,6 +60,7 @@ impl Default for Handler {
                 chain.feed_str(&bernbot::POEMS.split('-').collect::<String>());
                 chain
             },
+            prefix: bernbot::PREFIX,
         }
     }
 }
@@ -87,7 +89,7 @@ impl EventHandler for Handler {
     async fn message(&self, ctx: Context, new_message: Message) {
         let guild_id = new_message.guild_id.unwrap().0;
         let channel_id = new_message.channel_id.0;
-        if let Some(args) = new_message.content.strip_prefix(bernbot::PREFIX) {
+        if let Some(args) = new_message.content.strip_prefix(self.prefix) {
             let mut args = args.split_whitespace();
             if let Some(cmd) = args.next() {
                 match cmd {
@@ -102,9 +104,9 @@ impl EventHandler for Handler {
 
                         if let Some(subcmd) = args.next() {
                             if SUBCMDS.contains(&subcmd) {
+                                let mut lock = self.mchain.lock().await;
                                 let msg = match subcmd {
                                     "here" => {
-                                        let mut lock = self.mchain.lock().await;
                                         let mut mlisten = lock.entry(guild_id).or_default();
                                         mlisten.chan_id = channel_id;
                                         mlisten.save(guild_id).await;
@@ -117,9 +119,7 @@ impl EventHandler for Handler {
                                             .map_or(5.0, |c| c.parse::<f64>().unwrap_or(5.0))
                                             .min(100.0)
                                             .max(0.0);
-                                        if let Some(mlisten) =
-                                            self.mchain.lock().await.get_mut(&guild_id)
-                                        {
+                                        if let Some(mlisten) = lock.get_mut(&guild_id) {
                                             mlisten.probability = prob;
                                             mlisten.save(guild_id).await;
                                             format!("Set probability to {}%", prob)
@@ -129,9 +129,7 @@ impl EventHandler for Handler {
                                         }
                                     }
                                     "getprob" => {
-                                        if let Some(mlisten) =
-                                            self.mchain.lock().await.get(&guild_id)
-                                        {
+                                        if let Some(mlisten) = lock.get(&guild_id) {
                                             format!("Probability is {}%", mlisten.probability)
                                         } else {
                                             "First set a channel to listen in, dumb human."
@@ -140,6 +138,7 @@ impl EventHandler for Handler {
                                     }
                                     _ => unreachable!("literally how"),
                                 };
+                                drop(lock);
                                 perr!(new_message.reply(&ctx, msg,).await);
                             } else {
                                 self.unrecognised_command(&ctx, &new_message, subcmd, channel_id)
@@ -169,12 +168,14 @@ impl EventHandler for Handler {
                 .or_insert((NonZeroU8::new(1).unwrap(), None));
             if rand::thread_rng().gen_bool(0.05 * (no_insult_count.get() as f64) / 100.0) {
                 *no_insult_count = NonZeroU8::new(1).unwrap();
-                let res = new_message
-                    .reply(&ctx, bernbot::choose_random_insult())
-                    .await;
-                perr!(res, |msg| {
-                    *last_ins_msg = Some(msg);
-                });
+                perr!(
+                    new_message
+                        .reply(&ctx, bernbot::choose_random_insult())
+                        .await,
+                    |msg| {
+                        *last_ins_msg = Some(msg);
+                    }
+                );
             } else {
                 *no_insult_count = NonZeroU8::new(no_insult_count.get().saturating_add(1)).unwrap();
             }

@@ -1,7 +1,7 @@
 use std::str::SplitWhitespace;
 
 use markov::Chain;
-use rand::prelude::IteratorRandom;
+use rand::{prelude::IteratorRandom, Rng};
 
 pub const PREFIX: &str = "bern ";
 
@@ -29,20 +29,28 @@ pub fn process_poem_command(keywords: SplitWhitespace, poem_chain: &Chain<String
     } else if keywords.first().map(|s| s.as_str()) == Some("~gen") {
         let mut output = String::new();
         let some_tokens = poem_chain.generate();
+
+        let mut rng = rand::thread_rng();
         let start_token = some_tokens
             .iter()
             .filter(|c| c.chars().next().unwrap().is_uppercase())
-            .choose(&mut rand::thread_rng())
+            .choose(&mut rng)
             .unwrap();
+        let seperate_by = rng.gen_range(2..=3);
         for (index, sentence) in poem_chain
             .generate_str_from_token(start_token)
-            .split(|c| matches!(c, '.' | '?'))
+            .split(|c| matches!(c, '.' | '?' | '\n'))
+            .filter(|sub| !sub.trim().is_empty())
             .take(7)
             .enumerate()
         {
-            output.push_str(sentence.trim());
-            output.push_str(".\n");
-            if index % 3 == 0 {
+            let sentence = sentence.trim();
+            output.push_str(sentence);
+            if !sentence.ends_with(',') {
+                output.push('.');
+            }
+            output.push('\n');
+            if index % seperate_by == 0 {
                 output.push('\n');
             }
         }
