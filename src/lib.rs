@@ -47,7 +47,7 @@ impl Default for InsultData {
 
 #[derive(Debug)]
 pub enum BotCmd {
-    ReplyWith(SmolStr),
+    SendText(SmolStr, bool),
     SendAttachment { name: SmolStr, data: Vec<u8> },
     DoNothing,
 }
@@ -55,6 +55,7 @@ pub enum BotCmd {
 #[derive(Debug, Deserialize, Serialize)]
 struct BotData {
     prefix: SmolStr,
+    user_id: SmolStr,
     insult_data: DashMap<SmolStr, InsultData>,
     mchain: DashMap<SmolStr, MarkovData>,
 }
@@ -66,10 +67,11 @@ pub struct Bot {
 }
 
 impl Bot {
-    pub fn new(prefix: &str) -> Self {
+    pub fn new(prefix: SmolStr, user_id: SmolStr) -> Self {
         Self {
             data: Arc::new(BotData {
-                prefix: prefix.into(),
+                prefix,
+                user_id,
                 insult_data: DashMap::new(),
                 mchain: DashMap::new(),
             }),
@@ -77,7 +79,7 @@ impl Bot {
         }
     }
 
-    pub fn read_from(data_path: &Path) -> Result<Self, std::io::Error> {
+    pub fn read_from(data_path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
         let raw = std::fs::read(data_path)?;
         let data = ron::de::from_bytes(&raw).expect("failed to parse data");
 
@@ -87,7 +89,7 @@ impl Bot {
         })
     }
 
-    pub fn save_to(&self, data_path: &Path) -> Result<(), std::io::Error> {
+    pub fn save_to(&self, data_path: impl AsRef<Path>) -> Result<(), std::io::Error> {
         std::fs::write(
             data_path,
             ron::ser::to_string_pretty(&self.data, ron::ser::PrettyConfig::default())
@@ -141,34 +143,59 @@ impl Bot {
         channel_id: &str,
         message_id: &str,
         message_content: &str,
+        message_author: &str,
+        message_reply_to: Option<&str>,
     ) -> BotCmd {
         let mut args = message_content.split_whitespace();
         if let Some("bern") = args.next() {
             if let Some(cmd) = args.next() {
                 match cmd {
-                    "poem" => BotCmd::ReplyWith(self.process_poem_command(args)),
+                    "poem" => BotCmd::SendText(self.process_poem_command(args), true),
                     "fuckyou" => BotCmd::SendAttachment {
-                        name: "umad.jpg".into(),
+                        name: SmolStr::new_inline("umad.jpg"),
                         data: UMAD_JPG.to_vec(),
                     },
-                    "listen" => BotCmd::ReplyWith(if let Some(subcmd) = args.next() {
-                        match subcmd {
-                            "mark" => self.markov_mark_channel(channel_id),
-                            "unmark" => self.markov_unmark_channel(channel_id),
-                            "setprob" => {
-                                self.markov_set_prob(channel_id, args.next().unwrap_or("5.0"))
+                    "listen" => BotCmd::SendText(
+                        if let Some(subcmd) = args.next() {
+                            match subcmd {
+                                "mark" => self.markov_mark_channel(channel_id),
+                                "unmark" => self.markov_unmark_channel(channel_id),
+                                "setprob" => {
+                                    self.markov_set_prob(channel_id, args.next().unwrap_or("5.0"))
+                                }
+                                "getprob" => self.markov_get_prob(channel_id),
+                                _ => self.unrecognised_command(channel_id, message_id, subcmd),
                             }
-                            "getprob" => self.markov_get_prob(channel_id),
-                            _ => self.unrecognised_command(channel_id, message_id, subcmd),
-                        }
-                    } else {
-                        "commands are:\n- `mark`\n- `unmark`\n- `getprob`\n- `setprob <value>`"
-                            .into()
-                    }),
-                    _ => BotCmd::ReplyWith(self.unrecognised_command(channel_id, message_id, cmd)),
+                        } else {
+                            "commands are:\n- `mark`\n- `unmark`\n- `getprob`\n- `setprob <value>`"
+                                .into()
+                        },
+                        true,
+                    ),
+                    _ => BotCmd::SendText(
+                        self.unrecognised_command(channel_id, message_id, cmd),
+                        true,
+                    ),
                 }
             } else {
-                BotCmd::ReplyWith("What do you want?".into())
+                BotCmd::SendText(SmolStr::new_inline("What do you want?"), true)
+            }
+        } else if message_reply_to
+            .map(|message_id| self.has_insult_response(channel_id, message_id, message_content))
+            .unwrap_or(false)
+        {
+            BotCmd::SendAttachment {
+                name: SmolStr::new_inline("umad.jpg"),
+                data: UMAD_JPG.to_vec(),
+            }
+        } else if self.data.user_id == message_author {
+            if let Some(content) = self.try_insult(&channel_id, &message_id) {
+                BotCmd::SendText(content, true)
+            } else if let Some(content) = self.markov_try_gen_message(&channel_id, message_content)
+            {
+                BotCmd::SendText(content, false)
+            } else {
+                BotCmd::DoNothing
             }
         } else {
             BotCmd::DoNothing
@@ -210,12 +237,12 @@ impl Bot {
         false
     }
 
-    pub fn try_insult(&self, channel_id: &str, message_id: &str) -> Option<String> {
+    pub fn try_insult(&self, channel_id: &str, message_id: &str) -> Option<SmolStr> {
         let mut insult_data = self.insult_entry(channel_id);
         if rand::thread_rng().gen_bool(0.05 * (insult_data.count_passed as f64) / 100.0) {
             insult_data.count_passed = 1;
             insult_data.message_id = Some(message_id.into());
-            Some(choose_random_insult().to_string())
+            Some(choose_random_insult().into())
         } else {
             insult_data.count_passed = insult_data.count_passed.saturating_add(1);
             None
@@ -226,13 +253,13 @@ impl Bot {
         &self,
         channel_id: &str,
         message_content: &str,
-    ) -> Option<String> {
+    ) -> Option<SmolStr> {
         if let Some(mut mlisten) = self.data.mchain.get_mut(channel_id) {
             mlisten.chain.feed_str(message_content);
             if rand::thread_rng().gen_bool(mlisten.probability / 100.0) {
                 let mut message = mlisten.chain.generate_str();
                 message.truncate(250);
-                return Some(message);
+                return Some(message.into());
             }
         }
         None

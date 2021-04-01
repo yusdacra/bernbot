@@ -1,4 +1,4 @@
-use super::{perr, Bot, BotCmd, UMAD_JPG};
+use super::{perr, Bot, BotCmd};
 use serenity::{
     async_trait,
     client::{Client, Context, EventHandler},
@@ -10,7 +10,6 @@ use serenity::{
     utils::ContentSafeOptions,
 };
 use smol_str::SmolStr;
-use std::{env, path::Path};
 
 const DATA_PATH: &str = "data";
 
@@ -24,71 +23,56 @@ impl EventHandler for Bot {
     async fn message(&self, ctx: Context, new_message: Message) {
         let channel_id: SmolStr = new_message.channel_id.0.to_string().into();
         let message_id: SmolStr = new_message.id.to_string().into();
+        let message_author: SmolStr = new_message.author.to_string().into();
+        let message_content = &new_message.content;
+        let message_reply_to: Option<SmolStr> = new_message
+            .referenced_message
+            .as_ref()
+            .map(|msg| msg.id.to_string().into());
 
-        let bot_cmd = self.process_args(&channel_id, &message_id, &new_message.content);
-        if !matches!(bot_cmd, BotCmd::DoNothing) {
-            match bot_cmd {
-                BotCmd::ReplyWith(content) => {
-                    perr!(new_message.reply(&ctx, content).await)
-                }
-                BotCmd::SendAttachment { name, data } => {
-                    perr!(send_attach(&ctx, &new_message, data, name.into()).await)
-                }
-                BotCmd::DoNothing => unreachable!(),
+        let bot_cmd = self.process_args(
+            &channel_id,
+            &message_id,
+            message_content,
+            &message_author,
+            message_reply_to.as_deref(),
+        );
+        match bot_cmd {
+            BotCmd::SendAttachment { name, data } => {
+                perr!(send_attach(&ctx, &new_message, data, name.into()).await)
             }
-        } else {
-            if let Some(ref_msg) = new_message.referenced_message.as_ref() {
-                if self.has_insult_response(
-                    &channel_id,
-                    &ref_msg.id.to_string(),
-                    &new_message.content,
-                ) {
-                    perr!(
-                        send_attach(
-                            &ctx,
-                            &new_message,
-                            UMAD_JPG.to_vec(),
-                            "umad.jpg".to_string()
-                        )
-                        .await
-                    );
-                }
-            }
+            BotCmd::SendText(content, is_reply) => {
+                let content = serenity::utils::content_safe(
+                    &ctx,
+                    content.as_str(),
+                    &ContentSafeOptions::default(),
+                )
+                .await;
 
-            if new_message.author.id != ctx.cache.current_user_id().await {
-                if let Some(content) = self.try_insult(&channel_id, &message_id) {
+                if is_reply {
                     perr!(new_message.reply(&ctx, content).await);
-                }
-
-                if let Some(content) =
-                    self.markov_try_gen_message(&channel_id, &new_message.content)
+                } else if let Some(chan) = new_message
+                    .guild(&ctx)
+                    .await
+                    .map(|mut g| g.channels.remove(&new_message.channel_id))
+                    .flatten()
                 {
-                    let content = serenity::utils::content_safe(
-                        &ctx,
-                        &content,
-                        &ContentSafeOptions::default(),
-                    )
-                    .await;
-                    let cid = new_message.channel_id;
-                    if let Some(chan) = new_message
-                        .guild(&ctx)
-                        .await
-                        .map(|mut g| g.channels.remove(&cid))
-                        .flatten()
-                    {
-                        perr!(chan.send_message(&ctx, |msg| msg.content(content)).await);
-                    }
+                    perr!(chan.send_message(&ctx, |msg| msg.content(content)).await);
                 }
             }
+            BotCmd::DoNothing => {}
         }
-        perr!(self.save_to(Path::new(DATA_PATH)));
+        perr!(self.save_to(DATA_PATH));
     }
 }
 
 pub async fn discord_main(rt_handle: tokio::runtime::Handle) {
-    let bot = Bot::read_from(Path::new(DATA_PATH)).unwrap_or_else(|_| Bot::new("bern"));
+    let bot = Bot::read_from(DATA_PATH).unwrap_or_else(|_| {
+        let id = std::env::var("DISCORD_BOT_ID").expect("need bot id");
+        Bot::new(SmolStr::new_inline("bern"), id.into())
+    });
 
-    let token = env::var("DISCORD_TOKEN").expect("token");
+    let token = std::env::var("DISCORD_TOKEN").expect("need token");
     let mut client = Client::builder(token)
         .event_handler(bot)
         .await
