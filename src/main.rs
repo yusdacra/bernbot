@@ -27,6 +27,7 @@ impl EventHandler for Handler {
     async fn message(&self, ctx: Context, new_message: Message) {
         let channel_id = new_message.channel_id.0.to_string();
         let message_id = new_message.id.to_string();
+
         let bot_cmd = self
             .bot
             .process_args(&channel_id, &message_id, &new_message.content);

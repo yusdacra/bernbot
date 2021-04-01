@@ -65,7 +65,7 @@ struct BotData {
 #[derive(Debug)]
 pub struct Bot {
     data: Arc<BotData>,
-    poem_chain: Arc<MChain>,
+    poem_chain: MChain,
 }
 
 impl Bot {
@@ -76,11 +76,7 @@ impl Bot {
                 insult_data: HashMap::new().into(),
                 mchain: HashMap::new().into(),
             }),
-            poem_chain: {
-                let mut chain = Chain::new();
-                chain.feed_str(&POEMS.replace('-', ""));
-                Arc::new(chain)
-            },
+            poem_chain: default_poem_chain(),
         }
     }
 
@@ -90,11 +86,7 @@ impl Bot {
 
         Ok(Self {
             data: Arc::new(data),
-            poem_chain: {
-                let mut chain = Chain::new();
-                chain.feed_str(&POEMS.split('-').collect::<String>());
-                Arc::new(chain)
-            },
+            poem_chain: default_poem_chain(),
         })
     }
 
@@ -162,8 +154,13 @@ impl Bot {
         }
     }
 
-    pub fn process_args(&self, channel_id: &str, message_id: &str, args: &str) -> BotCmd {
-        let mut args = args.split_whitespace();
+    pub fn process_args(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        message_content: &str,
+    ) -> BotCmd {
+        let mut args = message_content.split_whitespace();
         if let Some("bern") = args.next() {
             if let Some(cmd) = args.next() {
                 match cmd {
@@ -316,6 +313,12 @@ impl Bot {
             }
         }
     }
+}
+
+pub fn default_poem_chain() -> MChain {
+    let mut chain = Chain::new();
+    chain.feed_str(&POEMS.replace('-', ""));
+    chain
 }
 
 pub fn choose_random_poem() -> &'static str {
