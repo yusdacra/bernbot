@@ -1,16 +1,10 @@
-use std::{
-    collections::HashMap,
-    fmt::{Debug, Display},
-    path::Path,
-    str::SplitWhitespace,
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Debug, path::Path, str::SplitWhitespace, sync::Arc};
 
 use markov::Chain;
-use rand::{prelude::IteratorRandom, Rng};
-
 use parking_lot::Mutex;
+use rand::{prelude::IteratorRandom, Rng};
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
 #[cfg(feature = "discord")]
 pub mod discord;
@@ -38,7 +32,7 @@ impl Default for MarkovData {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InsultData {
-    message_id: Option<String>,
+    message_id: Option<SmolStr>,
     count_passed: u8,
 }
 
@@ -53,16 +47,16 @@ impl Default for InsultData {
 
 #[derive(Debug)]
 pub enum BotCmd {
-    ReplyWith(String),
-    SendAttachment { name: String, data: Vec<u8> },
+    ReplyWith(SmolStr),
+    SendAttachment { name: SmolStr, data: Vec<u8> },
     DoNothing,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct BotData {
-    prefix: String,
-    insult_data: Mutex<HashMap<String, InsultData>>,
-    mchain: Mutex<HashMap<String, MarkovData>>,
+    prefix: SmolStr,
+    insult_data: Mutex<HashMap<SmolStr, InsultData>>,
+    mchain: Mutex<HashMap<SmolStr, MarkovData>>,
 }
 
 #[derive(Debug)]
@@ -72,10 +66,10 @@ pub struct Bot {
 }
 
 impl Bot {
-    pub fn new(prefix: impl Display) -> Self {
+    pub fn new(prefix: &str) -> Self {
         Self {
             data: Arc::new(BotData {
-                prefix: prefix.to_string(),
+                prefix: prefix.into(),
                 insult_data: HashMap::new().into(),
                 mchain: HashMap::new().into(),
             }),
@@ -101,44 +95,44 @@ impl Bot {
         )
     }
 
-    pub fn markov_mark_channel(&self, channel_id: &str) -> String {
+    pub fn markov_mark_channel(&self, channel_id: &str) -> SmolStr {
         let mut lock = self.data.mchain.lock();
         if lock.contains_key(channel_id) {
             "Channel is already marked for listening, you fool.".into()
         } else {
-            lock.insert(channel_id.to_string(), Default::default());
+            lock.insert(channel_id.into(), Default::default());
             "Will listen to this channel".into()
         }
     }
 
-    pub fn markov_unmark_channel(&self, channel_id: &str) -> String {
+    pub fn markov_unmark_channel(&self, channel_id: &str) -> SmolStr {
         self.data.mchain.lock().remove(channel_id);
         "Will no longer listen to this channel".into()
     }
 
-    pub fn markov_set_prob(&self, channel_id: &str, new_prob: &str) -> String {
+    pub fn markov_set_prob(&self, channel_id: &str, new_prob: &str) -> SmolStr {
         let prob = new_prob.parse().unwrap_or(5.0);
         if let Some(data) = self.data.mchain.lock().get_mut(channel_id) {
             data.probability = prob;
-            format!("Set probability to {}%", prob)
+            format!("Set probability to {}%", prob).into()
         } else {
             self.mark_channel_for_listen_msg()
         }
     }
 
-    pub fn markov_get_prob(&self, channel_id: &str) -> String {
+    pub fn markov_get_prob(&self, channel_id: &str) -> SmolStr {
         if let Some(data) = self.data.mchain.lock().get(channel_id) {
-            format!("Probability is {}%", data.probability)
+            format!("Probability is {}%", data.probability).into()
         } else {
             self.mark_channel_for_listen_msg()
         }
     }
 
-    fn mark_channel_for_listen_msg(&self) -> String {
+    fn mark_channel_for_listen_msg(&self) -> SmolStr {
         format!(
             "First set a channel to listen in, dumb human.\nA tip: you can do so with `{} listen mark`.",
             self.data.prefix
-        )
+        ).into()
     }
 
     pub fn process_listen_command(
@@ -147,7 +141,7 @@ impl Bot {
         message_id: &str,
         subcmd: &str,
         mut args: SplitWhitespace,
-    ) -> String {
+    ) -> SmolStr {
         match subcmd {
             "mark" => self.markov_mark_channel(channel_id),
             "unmark" => self.markov_unmark_channel(channel_id),
@@ -169,19 +163,19 @@ impl Bot {
                 match cmd {
                     "poem" => BotCmd::ReplyWith(self.process_poem_command(args)),
                     "fuckyou" => BotCmd::SendAttachment {
-                        name: "umad.jpg".to_string(),
+                        name: "umad.jpg".into(),
                         data: UMAD_JPG.to_vec(),
                     },
                     "listen" => BotCmd::ReplyWith(if let Some(subcmd) = args.next() {
                         self.process_listen_command(channel_id, message_id, subcmd, args)
                     } else {
                         "commands are:\n- `mark`\n- `unmark`\n- `getprob`\n- `setprob <value>`"
-                            .to_string()
+                            .into()
                     }),
                     _ => BotCmd::ReplyWith(self.unrecognised_command(channel_id, message_id, cmd)),
                 }
             } else {
-                BotCmd::ReplyWith("What do you want?".to_string())
+                BotCmd::ReplyWith("What do you want?".into())
             }
         } else {
             BotCmd::DoNothing
@@ -191,11 +185,11 @@ impl Bot {
     pub fn insult(&self, channel_id: &str, message_id: &str) -> String {
         let mut lock = self.data.insult_data.lock();
         if !lock.contains_key(channel_id) {
-            lock.insert(channel_id.to_string(), Default::default());
+            lock.insert(channel_id.into(), Default::default());
         }
         let insult_data = lock.get_mut(channel_id).unwrap();
         insult_data.count_passed = 1;
-        insult_data.message_id = Some(message_id.to_string());
+        insult_data.message_id = Some(message_id.into());
         choose_random_insult().to_string()
     }
 
@@ -219,12 +213,12 @@ impl Bot {
     pub fn try_insult(&self, channel_id: &str, message_id: &str) -> Option<String> {
         let mut lock = self.data.insult_data.lock();
         if !lock.contains_key(channel_id) {
-            lock.insert(channel_id.to_string(), Default::default());
+            lock.insert(channel_id.into(), Default::default());
         }
         let insult_data = lock.get_mut(channel_id).unwrap();
         if rand::thread_rng().gen_bool(0.05 * (insult_data.count_passed as f64) / 100.0) {
             insult_data.count_passed = 1;
-            insult_data.message_id = Some(message_id.to_string());
+            insult_data.message_id = Some(message_id.into());
             Some(choose_random_insult().to_string())
         } else {
             insult_data.count_passed = insult_data.count_passed.saturating_add(1);
@@ -248,20 +242,21 @@ impl Bot {
         None
     }
 
-    pub fn unrecognised_command(&self, channel_id: &str, message_id: &str, cmd: &str) -> String {
+    pub fn unrecognised_command(&self, channel_id: &str, message_id: &str, cmd: &str) -> SmolStr {
         format!(
             "{}`{}` isn't even a command.",
             self.insult(channel_id, message_id),
             cmd
         )
+        .into()
     }
 
-    pub fn process_poem_command(&self, keywords: SplitWhitespace) -> String {
+    pub fn process_poem_command(&self, keywords: SplitWhitespace) -> SmolStr {
         let poem_chain = &self.poem_chain;
         let keywords = keywords.map(str::to_lowercase).collect::<Vec<_>>();
 
         if keywords.is_empty() {
-            choose_random_poem().to_string()
+            choose_random_poem().into()
         } else if keywords.first().map(|s| s.as_str()) == Some("~gen") {
             let mut output = String::new();
             let some_tokens = poem_chain.generate();
@@ -290,7 +285,7 @@ impl Bot {
                     output.push('\n');
                 }
             }
-            output
+            output.into()
         } else {
             let mut ranked = POEMS
                 .split('-')
@@ -310,9 +305,9 @@ impl Bot {
                 .collect::<Vec<_>>();
             ranked.sort_by_key(|(_, k)| *k);
             if let Some((result, _)) = ranked.last() {
-                result.to_string()
+                (*result).into()
             } else {
-                "No poem with those words. Try again, maybe a miracle will occur.".to_string()
+                "No poem with those words. Try again, maybe a miracle will occur.".into()
             }
         }
     }

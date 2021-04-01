@@ -9,6 +9,7 @@ use serenity::{
     },
     utils::ContentSafeOptions,
 };
+use smol_str::SmolStr;
 use std::{env, path::Path};
 
 const DATA_PATH: &str = "data";
@@ -21,8 +22,8 @@ impl EventHandler for Bot {
     }
 
     async fn message(&self, ctx: Context, new_message: Message) {
-        let channel_id = new_message.channel_id.0.to_string();
-        let message_id = new_message.id.to_string();
+        let channel_id: SmolStr = new_message.channel_id.0.to_string().into();
+        let message_id: SmolStr = new_message.id.to_string().into();
 
         let bot_cmd = self.process_args(&channel_id, &message_id, &new_message.content);
         if !matches!(bot_cmd, BotCmd::DoNothing) {
@@ -31,7 +32,7 @@ impl EventHandler for Bot {
                     perr!(new_message.reply(&ctx, content).await)
                 }
                 BotCmd::SendAttachment { name, data } => {
-                    perr!(send_attach(&ctx, &new_message, data, name).await)
+                    perr!(send_attach(&ctx, &new_message, data, name.into()).await)
                 }
                 BotCmd::DoNothing => unreachable!(),
             }
@@ -80,7 +81,7 @@ impl EventHandler for Bot {
                 }
             }
         }
-        self.save_to(Path::new(DATA_PATH)).unwrap();
+        perr!(self.save_to(Path::new(DATA_PATH)));
     }
 }
 
