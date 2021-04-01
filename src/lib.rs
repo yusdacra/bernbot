@@ -12,6 +12,9 @@ use rand::{prelude::IteratorRandom, Rng};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "discord")]
+pub mod discord;
+
 pub const POEMS: &str = include_str!("../resources/poems.txt");
 pub const INSULTS: &str = include_str!("../resources/insults.txt");
 pub const UMAD_JPG: &[u8] = include_bytes!("../resources/umad.jpg");
