@@ -1,7 +1,7 @@
-use std::{collections::HashMap, fmt::Debug, path::Path, str::SplitWhitespace, sync::Arc};
+use std::{fmt::Debug, path::Path, str::SplitWhitespace, sync::Arc};
 
+use dashmap::DashMap;
 use markov::Chain;
-use parking_lot::Mutex;
 use rand::{prelude::IteratorRandom, Rng};
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
@@ -55,8 +55,8 @@ pub enum BotCmd {
 #[derive(Debug, Deserialize, Serialize)]
 struct BotData {
     prefix: SmolStr,
-    insult_data: Mutex<HashMap<SmolStr, InsultData>>,
-    mchain: Mutex<HashMap<SmolStr, MarkovData>>,
+    insult_data: DashMap<SmolStr, InsultData>,
+    mchain: DashMap<SmolStr, MarkovData>,
 }
 
 #[derive(Debug)]
@@ -70,8 +70,8 @@ impl Bot {
         Self {
             data: Arc::new(BotData {
                 prefix: prefix.into(),
-                insult_data: HashMap::new().into(),
-                mchain: HashMap::new().into(),
+                insult_data: DashMap::new(),
+                mchain: DashMap::new(),
             }),
             poem_chain: default_poem_chain(),
         }
@@ -96,23 +96,24 @@ impl Bot {
     }
 
     pub fn markov_mark_channel(&self, channel_id: &str) -> SmolStr {
-        let mut lock = self.data.mchain.lock();
-        if lock.contains_key(channel_id) {
+        if self.data.mchain.contains_key(channel_id) {
             "Channel is already marked for listening, you fool.".into()
         } else {
-            lock.insert(channel_id.into(), Default::default());
+            self.data
+                .mchain
+                .insert(channel_id.into(), Default::default());
             "Will listen to this channel".into()
         }
     }
 
     pub fn markov_unmark_channel(&self, channel_id: &str) -> SmolStr {
-        self.data.mchain.lock().remove(channel_id);
+        self.data.mchain.remove(channel_id);
         "Will no longer listen to this channel".into()
     }
 
     pub fn markov_set_prob(&self, channel_id: &str, new_prob: &str) -> SmolStr {
         let prob = new_prob.parse().unwrap_or(5.0);
-        if let Some(data) = self.data.mchain.lock().get_mut(channel_id) {
+        if let Some(mut data) = self.data.mchain.get_mut(channel_id) {
             data.probability = prob;
             format!("Set probability to {}%", prob).into()
         } else {
@@ -121,7 +122,7 @@ impl Bot {
     }
 
     pub fn markov_get_prob(&self, channel_id: &str) -> SmolStr {
-        if let Some(data) = self.data.mchain.lock().get(channel_id) {
+        if let Some(data) = self.data.mchain.get(channel_id) {
             format!("Probability is {}%", data.probability).into()
         } else {
             self.mark_channel_for_listen_msg()
@@ -133,22 +134,6 @@ impl Bot {
             "First set a channel to listen in, dumb human.\nA tip: you can do so with `{} listen mark`.",
             self.data.prefix
         ).into()
-    }
-
-    pub fn process_listen_command(
-        &self,
-        channel_id: &str,
-        message_id: &str,
-        subcmd: &str,
-        mut args: SplitWhitespace,
-    ) -> SmolStr {
-        match subcmd {
-            "mark" => self.markov_mark_channel(channel_id),
-            "unmark" => self.markov_unmark_channel(channel_id),
-            "setprob" => self.markov_set_prob(channel_id, args.next().unwrap_or("5.0")),
-            "getprob" => self.markov_get_prob(channel_id),
-            _ => self.unrecognised_command(channel_id, message_id, subcmd),
-        }
     }
 
     pub fn process_args(
@@ -167,7 +152,15 @@ impl Bot {
                         data: UMAD_JPG.to_vec(),
                     },
                     "listen" => BotCmd::ReplyWith(if let Some(subcmd) = args.next() {
-                        self.process_listen_command(channel_id, message_id, subcmd, args)
+                        match subcmd {
+                            "mark" => self.markov_mark_channel(channel_id),
+                            "unmark" => self.markov_unmark_channel(channel_id),
+                            "setprob" => {
+                                self.markov_set_prob(channel_id, args.next().unwrap_or("5.0"))
+                            }
+                            "getprob" => self.markov_get_prob(channel_id),
+                            _ => self.unrecognised_command(channel_id, message_id, subcmd),
+                        }
                     } else {
                         "commands are:\n- `mark`\n- `unmark`\n- `getprob`\n- `setprob <value>`"
                             .into()
@@ -182,12 +175,20 @@ impl Bot {
         }
     }
 
-    pub fn insult(&self, channel_id: &str, message_id: &str) -> String {
-        let mut lock = self.data.insult_data.lock();
-        if !lock.contains_key(channel_id) {
-            lock.insert(channel_id.into(), Default::default());
+    pub fn insult_entry(
+        &self,
+        channel_id: &str,
+    ) -> dashmap::mapref::one::RefMut<SmolStr, InsultData> {
+        if !self.data.insult_data.contains_key(channel_id) {
+            self.data
+                .insult_data
+                .insert(channel_id.into(), Default::default());
         }
-        let insult_data = lock.get_mut(channel_id).unwrap();
+        self.data.insult_data.get_mut(channel_id).unwrap()
+    }
+
+    pub fn insult(&self, channel_id: &str, message_id: &str) -> String {
+        let mut insult_data = self.insult_entry(channel_id);
         insult_data.count_passed = 1;
         insult_data.message_id = Some(message_id.into());
         choose_random_insult().to_string()
@@ -199,8 +200,7 @@ impl Bot {
         message_id: &str,
         message_content: &str,
     ) -> bool {
-        let lock = self.data.insult_data.lock();
-        if let Some(data) = lock.get(channel_id) {
+        if let Some(data) = self.data.insult_data.get(channel_id) {
             if let Some(msg_id) = data.message_id.as_deref() {
                 if message_content.contains("fuck you") && message_id == msg_id {
                     return true;
@@ -211,11 +211,7 @@ impl Bot {
     }
 
     pub fn try_insult(&self, channel_id: &str, message_id: &str) -> Option<String> {
-        let mut lock = self.data.insult_data.lock();
-        if !lock.contains_key(channel_id) {
-            lock.insert(channel_id.into(), Default::default());
-        }
-        let insult_data = lock.get_mut(channel_id).unwrap();
+        let mut insult_data = self.insult_entry(channel_id);
         if rand::thread_rng().gen_bool(0.05 * (insult_data.count_passed as f64) / 100.0) {
             insult_data.count_passed = 1;
             insult_data.message_id = Some(message_id.into());
@@ -231,7 +227,7 @@ impl Bot {
         channel_id: &str,
         message_content: &str,
     ) -> Option<String> {
-        if let Some(mlisten) = self.data.mchain.lock().get_mut(channel_id) {
+        if let Some(mut mlisten) = self.data.mchain.get_mut(channel_id) {
             mlisten.chain.feed_str(message_content);
             if rand::thread_rng().gen_bool(mlisten.probability / 100.0) {
                 let mut message = mlisten.chain.generate_str();

@@ -56,6 +56,7 @@ name = "bernbot"
 version = "0.1.0"
 dependencies = [
  "ctrlc",
+ "dashmap",
  "markov",
  "parking_lot",
  "rand 0.8.3",
@@ -154,6 +155,17 @@ checksum = "c15b8ec3b5755a188c141c1f6a98e76de31b936209bf066b647979e2a84764a9"
 dependencies = [
  "nix",
  "winapi",
+]
+
+[[package]]
+name = "dashmap"
+version = "4.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e77a43b28d0668df09411cb0bc9a8c2adc40f9a048afe863e05fd43251e8e39c"
+dependencies = [
+ "cfg-if",
+ "num_cpus",
+ "serde",
 ]
 
 [[package]]
