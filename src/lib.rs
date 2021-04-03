@@ -60,10 +60,10 @@ struct BotData {
     mchain: DashMap<SmolStr, MarkovData>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Bot {
     data: Arc<BotData>,
-    poem_chain: MChain,
+    poem_chain: Arc<MChain>,
 }
 
 impl Bot {
@@ -75,25 +75,29 @@ impl Bot {
                 insult_data: DashMap::new(),
                 mchain: DashMap::new(),
             }),
-            poem_chain: default_poem_chain(),
+            poem_chain: default_poem_chain().into(),
         }
     }
 
     pub fn read_from(data_path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
-        let raw = std::fs::read(data_path)?;
+        let compressed = std::fs::read(data_path)?;
+        let raw = lz4_flex::decompress_size_prepended(&compressed).unwrap();
         let data = ron::de::from_bytes(&raw).expect("failed to parse data");
 
         Ok(Self {
             data: Arc::new(data),
-            poem_chain: default_poem_chain(),
+            poem_chain: default_poem_chain().into(),
         })
     }
 
     pub fn save_to(&self, data_path: impl AsRef<Path>) -> Result<(), std::io::Error> {
         std::fs::write(
             data_path,
-            ron::ser::to_string_pretty(&self.data, ron::ser::PrettyConfig::default())
-                .expect("couldnt serialize"),
+            lz4_flex::compress_prepend_size(
+                ron::ser::to_string_pretty(&self.data, ron::ser::PrettyConfig::default())
+                    .expect("couldnt serialize")
+                    .as_bytes(),
+            ),
         )
     }
 

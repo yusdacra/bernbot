@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::{perr, Bot, BotCmd};
 use serenity::{
     async_trait,
@@ -18,6 +20,14 @@ impl EventHandler for Bot {
     async fn ready(&self, ctx: Context, _data_about_bot: Ready) {
         ctx.set_activity(Activity::playing("G-go for it, yay. Mii, nipah~☆"))
             .await;
+
+        let bot = self.clone();
+        tokio::spawn(async move {
+            loop {
+                bot.save_to(DATA_PATH).expect("couldnt save");
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
     }
 
     async fn message(&self, ctx: Context, new_message: Message) {
@@ -62,15 +72,15 @@ impl EventHandler for Bot {
             }
             BotCmd::DoNothing => {}
         }
-        perr!(self.save_to(DATA_PATH));
     }
 }
 
-pub async fn discord_main(rt_handle: tokio::runtime::Handle) {
+pub async fn main(rt_handle: tokio::runtime::Handle) {
     let bot = Bot::read_from(DATA_PATH).unwrap_or_else(|_| {
         let id = std::env::var("DISCORD_BOT_ID").expect("need bot id");
         Bot::new(SmolStr::new_inline("bern"), id.into())
     });
+    let bot2 = bot.clone();
 
     let token = std::env::var("DISCORD_TOKEN").expect("need token");
     let mut client = Client::builder(token)
@@ -81,6 +91,7 @@ pub async fn discord_main(rt_handle: tokio::runtime::Handle) {
     let cc = client.shard_manager.clone();
     ctrlc::set_handler(move || {
         rt_handle.block_on(async { cc.lock().await.shutdown_all().await });
+        bot2.save_to(DATA_PATH).expect("couldnt save");
         std::process::exit(0);
     })
     .expect("couldnt set ctrlc handler");

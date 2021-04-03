@@ -25,6 +25,7 @@ parking_lot = { version = "0.11", features = ["serde"] }
 ron = "0.6"
 smol_str = { version = "0.1", features = ["serde"] }
 dashmap = { version = "4.0", features = ["serde"] }
+lz4_flex = "0.7"
 
 [features]
 default = ["discord"]

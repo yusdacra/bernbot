@@ -57,6 +57,7 @@ version = "0.1.0"
 dependencies = [
  "ctrlc",
  "dashmap",
+ "lz4_flex",
  "markov",
  "parking_lot",
  "rand 0.8.3",
@@ -565,6 +566,12 @@ checksum = "51b9bbe6c47d51fc3e1a9b945965946b4c44142ab8792c50835a980d362c2710"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "lz4_flex"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05304f8e67dfc93d1b4b990137fd1a7a4c6ad44b60a9c486c8c4486f9d2027ae"
 
 [[package]]
 name = "markov"
