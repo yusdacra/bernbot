@@ -13,6 +13,32 @@ pub const POEMS: &str = include_str!("../resources/poems.txt");
 pub const INSULTS: &str = include_str!("../resources/insults.txt");
 pub const UMAD_JPG: &[u8] = include_bytes!("../resources/umad.jpg");
 
+pub const HELP_TEXT: &str = "commands are:
+- `help`: posts this text
+- `poem`: search / get random poem or generate one
+- `listen`: markov chain listener management commands
+- `fuckyou`: posts funny \"u mad?\" image
+
+use `help command` to get more information about a command";
+
+pub const POEM_HELP_TEXT: &str = "search / get random poem or generate one
+
+if called with no arguments it will get a random poem
+arguments are counted as search keywords unless it's a subcommand
+
+subcommands are:
+- `~gen`: generates a random poem";
+
+pub const FUCKYOU_HELP_TEXT: &str = "posts funny \"u mad?\" image";
+
+pub const LISTEN_HELP_TEXT: &str = "markov chain listener management commands
+
+if called with no arguments it will toggle listen status for the current channel
+
+subcommands are:
+- `getprob`: get message posting probability value
+- `setprob <value>`: set message posting probability value. must be a percentage. calling it without any argument or invalid argument will set it to `5.0`.";
+
 type MChain = Chain<String>;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -101,20 +127,16 @@ impl Bot {
         )
     }
 
-    pub fn markov_mark_channel(&self, channel_id: &str) -> SmolStr {
+    pub fn markov_toggle_mark_channel(&self, channel_id: &str) -> SmolStr {
         if self.data.mchain.contains_key(channel_id) {
-            "Channel is already marked for listening, you fool.".into()
+            self.data.mchain.remove(channel_id);
+            "Will no longer listen to this channel".into()
         } else {
             self.data
                 .mchain
                 .insert(channel_id.into(), Default::default());
             "Will listen to this channel".into()
         }
-    }
-
-    pub fn markov_unmark_channel(&self, channel_id: &str) -> SmolStr {
-        self.data.mchain.remove(channel_id);
-        "Will no longer listen to this channel".into()
     }
 
     pub fn markov_set_prob(&self, channel_id: &str, new_prob: &str) -> SmolStr {
@@ -137,7 +159,7 @@ impl Bot {
 
     fn mark_channel_for_listen_msg(&self) -> SmolStr {
         format!(
-            "First set a channel to listen in, dumb human.\nA tip: you can do so with `{} listen mark`.",
+            "First set this channel for listening, dumb human.\nA tip: you can do so with `{} listen`.",
             self.data.prefix
         ).into()
     }
@@ -154,6 +176,20 @@ impl Bot {
         if let Some("bern") = args.next() {
             if let Some(cmd) = args.next() {
                 match cmd {
+                    "help" => BotCmd::SendText(
+                        if let Some(subcmd) = args.next() {
+                            match subcmd {
+                                "poem" => POEM_HELP_TEXT.into(),
+                                "listen" => LISTEN_HELP_TEXT.into(),
+                                "fuckyou" => FUCKYOU_HELP_TEXT.into(),
+                                "help" => HELP_TEXT.into(),
+                                cmd => self.unrecognised_command(channel_id, message_id, cmd),
+                            }
+                        } else {
+                            HELP_TEXT.into()
+                        },
+                        true,
+                    ),
                     "poem" => BotCmd::SendText(self.process_poem_command(args), true),
                     "fuckyou" => BotCmd::SendAttachment {
                         name: SmolStr::new_inline("umad.jpg"),
@@ -162,8 +198,6 @@ impl Bot {
                     "listen" => BotCmd::SendText(
                         if let Some(subcmd) = args.next() {
                             match subcmd {
-                                "mark" => self.markov_mark_channel(channel_id),
-                                "unmark" => self.markov_unmark_channel(channel_id),
                                 "setprob" => {
                                     self.markov_set_prob(channel_id, args.next().unwrap_or("5.0"))
                                 }
@@ -171,8 +205,7 @@ impl Bot {
                                 _ => self.unrecognised_command(channel_id, message_id, subcmd),
                             }
                         } else {
-                            "commands are:\n- `mark`\n- `unmark`\n- `getprob`\n- `setprob <value>`"
-                                .into()
+                            self.markov_toggle_mark_channel(channel_id)
                         },
                         true,
                     ),
@@ -364,13 +397,13 @@ pub fn choose_random_insult() -> &'static str {
 macro_rules! perr {
     ($res:expr) => {
         if let Err(err) = $res {
-            eprintln!("ERROR: {}", err);
+            tracing::error!("{}", err);
         }
     };
     ($res:expr, |$val:ident| $do:expr) => {
         match $res {
             Ok($val) => $do,
-            Err(err) => eprintln!("ERROR: {}", err),
+            Err(err) => tracing::error!("{}", err),
         }
     };
 }

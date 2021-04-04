@@ -13,3 +13,4 @@
 /.vscode
 /shell.nix
 /data
+/log
