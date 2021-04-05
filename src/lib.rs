@@ -1,4 +1,4 @@
-use std::{fmt::Debug, path::Path, str::SplitWhitespace, sync::Arc};
+use std::{fmt::Debug, path::Path, sync::Arc};
 
 use dashmap::DashMap;
 use markov::Chain;
@@ -177,7 +177,7 @@ impl Bot {
     ) -> BotCmd {
         let mut args = message_content.split_whitespace();
         #[allow(clippy::blocks_in_if_conditions)]
-        if let Some("bern") = args.next() {
+        if args.next() == Some(&self.data.prefix) {
             if let Some(cmd) = args.next() {
                 match cmd {
                     "help" => BotCmd::SendMessage {
@@ -196,7 +196,11 @@ impl Bot {
                         attach: None,
                     },
                     "poem" => BotCmd::SendMessage {
-                        text: self.process_poem_command(args),
+                        text: self.process_poem_command(
+                            message_content
+                                .trim_start_matches(self.data.prefix.as_str())
+                                .trim_start_matches(" poem "),
+                        ),
                         is_reply: true,
                         attach: None,
                     },
@@ -331,13 +335,12 @@ impl Bot {
         .into()
     }
 
-    pub fn process_poem_command(&self, keywords: SplitWhitespace) -> SmolStr {
+    pub fn process_poem_command(&self, keywords: &str) -> SmolStr {
         let poem_chain = &self.poem_chain;
-        let keywords = keywords.map(str::to_lowercase).collect::<Vec<_>>();
 
         if keywords.is_empty() {
             choose_random_poem().into()
-        } else if keywords.first().map(|s| s.as_str()) == Some("~gen") {
+        } else if keywords == "~gen" {
             let mut output = String::new();
             let some_tokens = poem_chain.generate();
 
@@ -367,17 +370,13 @@ impl Bot {
             }
             output.into()
         } else {
+            let ranker = fuzzy_matcher::skim::SkimMatcherV2::default();
             let mut ranked = POEMS
                 .split('-')
-                .filter_map(|p| {
-                    let mut has_keywords = 0;
-                    for k in &keywords {
-                        if p.to_lowercase().contains(k) {
-                            has_keywords += 1;
-                        }
-                    }
-                    if has_keywords > 0 {
-                        Some((p, has_keywords))
+                .filter_map(|choice| {
+                    let score = ranker.fuzzy(choice, keywords, false)?.0;
+                    if score > 100 {
+                        Some((choice, score))
                     } else {
                         None
                     }
