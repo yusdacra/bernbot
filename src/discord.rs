@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::{perr, Bot, BotCmd};
+use rand::Rng;
 use serenity::{
     async_trait,
     client::{Client, Context, EventHandler},
@@ -70,7 +71,8 @@ impl EventHandler for Bot {
                     .flatten()
                 {
                     let typing = ctx.http.start_typing(new_message.channel_id.0).unwrap();
-                    tokio::time::sleep(Duration::from_millis(750)).await;
+                    let millis = rand::thread_rng().gen_range(400..=800);
+                    tokio::time::sleep(Duration::from_millis(millis)).await;
                     perr!(
                         chan.send_message(&ctx, |msg| {
                             let m = msg.content(content).allowed_mentions(|c| c.empty_parse());

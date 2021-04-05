@@ -176,6 +176,7 @@ impl Bot {
         message_reply_to: Option<&str>,
     ) -> BotCmd {
         let mut args = message_content.split_whitespace();
+        #[allow(clippy::blocks_in_if_conditions)]
         if let Some("bern") = args.next() {
             if let Some(cmd) = args.next() {
                 match cmd {
@@ -232,10 +233,9 @@ impl Bot {
                     attach: None,
                 }
             }
-        } else if message_reply_to
-            .map(|message_id| self.has_insult_response(channel_id, message_id, message_content))
-            .unwrap_or(false)
-        {
+        } else if message_reply_to.map_or(false, |message_id| {
+            self.has_insult_response(channel_id, message_id, message_content)
+        }) {
             BotCmd::SendMessage {
                 text: SmolStr::new_inline(""),
                 is_reply: true,
