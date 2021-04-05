@@ -18,8 +18,11 @@ const DATA_PATH: &str = "data";
 #[async_trait]
 impl EventHandler for Bot {
     async fn ready(&self, ctx: Context, _data_about_bot: Ready) {
-        ctx.set_activity(Activity::playing("G-go for it, yay. Mii, nipah~☆"))
-            .await;
+        ctx.set_activity(Activity::playing(&format!(
+            "{} help | G-go for it, yay. Mii, nipah~☆",
+            self.data.prefix
+        )))
+        .await;
 
         let bot = self.clone();
         tokio::spawn(async move {
