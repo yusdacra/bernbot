@@ -36,8 +36,8 @@ impl EventHandler for Bot {
 
     async fn message(&self, ctx: Context, new_message: Message) {
         let channel_id: SmolStr = new_message.channel_id.0.to_string().into();
-        let message_id: SmolStr = new_message.id.to_string().into();
-        let message_author: SmolStr = new_message.author.to_string().into();
+        let message_id: SmolStr = new_message.id.0.to_string().into();
+        let message_author: SmolStr = new_message.author.id.0.to_string().into();
         let message_content = &new_message.content;
         let message_reply_to: Option<SmolStr> = new_message
             .referenced_message

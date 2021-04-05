@@ -246,16 +246,17 @@ impl Bot {
                 attach: Some((SmolStr::new_inline("umad.jpg"), UMAD_JPG.to_vec())),
             }
         } else if self.data.user_id != message_author {
-            if let Some(text) = self.try_insult(&channel_id, &message_id) {
+            if let Some((text, is_reply)) = self
+                .try_insult(&channel_id, &message_id)
+                .map(|text| (text, true))
+                .or_else(|| {
+                    self.markov_try_gen_message(&channel_id, message_content)
+                        .map(|text| (text, false))
+                })
+            {
                 BotCmd::SendMessage {
                     text,
-                    is_reply: true,
-                    attach: None,
-                }
-            } else if let Some(text) = self.markov_try_gen_message(&channel_id, message_content) {
-                BotCmd::SendMessage {
-                    text,
-                    is_reply: false,
+                    is_reply,
                     attach: None,
                 }
             } else {
@@ -291,10 +292,7 @@ impl Bot {
         message_id: &str,
         message_content: &str,
     ) -> bool {
-        self.data
-            .insult_data
-            .get(channel_id)
-            .map_or(false, |d| d.message_id.as_deref() == Some(message_id))
+        self.insult_entry(channel_id).message_id.as_deref() == Some(message_id)
             && message_content.contains("fuck you")
     }
 
