@@ -167,7 +167,7 @@ impl Bot {
         ).into()
     }
 
-    pub fn process_args(
+    pub async fn process_args(
         &self,
         channel_id: &str,
         message_id: &str,

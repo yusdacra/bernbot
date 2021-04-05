@@ -14,7 +14,7 @@ use serenity::{
 };
 use smol_str::SmolStr;
 
-const DATA_PATH: &str = "data";
+const DATA_PATH: &str = "data_discord";
 
 #[async_trait]
 impl EventHandler for Bot {
@@ -44,13 +44,16 @@ impl EventHandler for Bot {
             .as_ref()
             .map(|msg| msg.id.to_string().into());
 
-        let bot_cmd = self.process_args(
-            &channel_id,
-            &message_id,
-            message_content,
-            &message_author,
-            message_reply_to.as_deref(),
-        );
+        let bot_cmd = self
+            .process_args(
+                &channel_id,
+                &message_id,
+                message_content,
+                &message_author,
+                message_reply_to.as_deref(),
+            )
+            .await;
+
         match bot_cmd {
             BotCmd::SendMessage {
                 text,

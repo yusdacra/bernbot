@@ -12,5 +12,5 @@
 
 /.vscode
 /shell.nix
-/data
+/data_*
 /log
