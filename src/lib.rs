@@ -39,7 +39,7 @@ subcommands are:
 - `getprob`: get message posting probability value
 - `setprob <value>`: set message posting probability value. must be a percentage. calling it without any argument or invalid argument will set it to `5.0`.";
 
-type MChain = Chain<String>;
+type MChain = Chain<SmolStr>;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MarkovData {
@@ -314,11 +314,25 @@ impl Bot {
         message_content: &str,
     ) -> Option<SmolStr> {
         if let Some(mut mlisten) = self.data.mchain.get_mut(channel_id) {
-            mlisten.chain.feed_str(message_content);
+            mlisten.chain.feed(
+                &message_content
+                    .split_whitespace()
+                    .map(SmolStr::new)
+                    .collect::<Vec<_>>(),
+            );
             if rand::thread_rng().gen_bool(mlisten.probability / 100.0) {
-                let mut message = mlisten.chain.generate_str();
-                message.truncate(250);
-                return Some(message.into());
+                let tokens = mlisten
+                    .chain
+                    .generate()
+                    .into_iter()
+                    .take(32)
+                    .collect::<Vec<_>>();
+                let mut result = String::with_capacity(tokens.iter().map(SmolStr::len).sum());
+                for token in tokens {
+                    result.push_str(&token);
+                    result.push(' ');
+                }
+                return Some(result.into());
             }
         }
         None
@@ -347,19 +361,30 @@ impl Bot {
                 .iter()
                 .filter(|c| c.chars().next().unwrap().is_uppercase())
                 .choose(&mut rng)
-                .unwrap();
+                .unwrap()
+                .clone();
             let seperate_by = rng.gen_range(2..=3);
-            for (index, sentence) in poem_chain
-                .generate_str_from_token(start_token)
-                .split(|c| matches!(c, '.' | '?' | '\n'))
-                .filter(|sub| !sub.trim().is_empty())
-                .take(7)
-                .enumerate()
-            {
-                let sentence = sentence.trim();
-                output.push_str(sentence);
-                if !sentence.ends_with(',') {
-                    output.push('.');
+            let poem_lines = rng.gen_range(6..=8);
+            let is_sentence_end = |c| matches!(c, '.' | '!' | '?');
+            let mut sentences = Vec::with_capacity(poem_lines);
+            let mut sentence = Vec::new();
+            let mut sentence_count = 0;
+            for token in poem_chain.generate_from_token(start_token) {
+                if sentence_count > 7 {
+                    break;
+                }
+                if token.ends_with(is_sentence_end) {
+                    sentence_count += 1;
+                    sentence.push(token);
+                    sentences.push(sentence.drain(..).collect::<Vec<_>>());
+                } else {
+                    sentence.push(token);
+                }
+            }
+            for (index, sentence) in sentences.into_iter().enumerate() {
+                for word in sentence {
+                    output.push_str(&word);
+                    output.push(' ');
                 }
                 output.push('\n');
                 if index % seperate_by == 0 {
@@ -392,7 +417,13 @@ impl Bot {
 
 pub fn default_poem_chain() -> MChain {
     let mut chain = Chain::new();
-    chain.feed_str(&POEMS.replace('-', ""));
+    chain.feed(
+        &POEMS
+            .replace('-', "")
+            .split_whitespace()
+            .map(SmolStr::new)
+            .collect::<Vec<_>>(),
+    );
     chain
 }
 
