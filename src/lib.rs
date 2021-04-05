@@ -73,8 +73,11 @@ impl Default for InsultData {
 
 #[derive(Debug)]
 pub enum BotCmd {
-    SendText(SmolStr, bool),
-    SendAttachment { name: SmolStr, data: Vec<u8> },
+    SendMessage {
+        text: SmolStr,
+        attach: Option<(SmolStr, Vec<u8>)>,
+        is_reply: bool,
+    },
     DoNothing,
 }
 
@@ -176,8 +179,8 @@ impl Bot {
         if let Some("bern") = args.next() {
             if let Some(cmd) = args.next() {
                 match cmd {
-                    "help" => BotCmd::SendText(
-                        if let Some(subcmd) = args.next() {
+                    "help" => BotCmd::SendMessage {
+                        text: if let Some(subcmd) = args.next() {
                             match subcmd {
                                 "poem" => POEM_HELP_TEXT.into(),
                                 "listen" => LISTEN_HELP_TEXT.into(),
@@ -188,15 +191,21 @@ impl Bot {
                         } else {
                             HELP_TEXT.into()
                         },
-                        true,
-                    ),
-                    "poem" => BotCmd::SendText(self.process_poem_command(args), true),
-                    "fuckyou" => BotCmd::SendAttachment {
-                        name: SmolStr::new_inline("umad.jpg"),
-                        data: UMAD_JPG.to_vec(),
+                        is_reply: true,
+                        attach: None,
                     },
-                    "listen" => BotCmd::SendText(
-                        if let Some(subcmd) = args.next() {
+                    "poem" => BotCmd::SendMessage {
+                        text: self.process_poem_command(args),
+                        is_reply: true,
+                        attach: None,
+                    },
+                    "fuckyou" => BotCmd::SendMessage {
+                        text: SmolStr::new_inline(""),
+                        is_reply: true,
+                        attach: Some((SmolStr::new_inline("umad.jpg"), UMAD_JPG.to_vec())),
+                    },
+                    "listen" => BotCmd::SendMessage {
+                        text: if let Some(subcmd) = args.next() {
                             match subcmd {
                                 "setprob" => {
                                     self.markov_set_prob(channel_id, args.next().unwrap_or("5.0"))
@@ -207,30 +216,44 @@ impl Bot {
                         } else {
                             self.markov_toggle_mark_channel(channel_id)
                         },
-                        true,
-                    ),
-                    _ => BotCmd::SendText(
-                        self.unrecognised_command(channel_id, message_id, cmd),
-                        true,
-                    ),
+                        is_reply: true,
+                        attach: None,
+                    },
+                    cmd => BotCmd::SendMessage {
+                        text: self.unrecognised_command(channel_id, message_id, cmd),
+                        is_reply: true,
+                        attach: None,
+                    },
                 }
             } else {
-                BotCmd::SendText(SmolStr::new_inline("What do you want?"), true)
+                BotCmd::SendMessage {
+                    text: SmolStr::new_inline("What do you want?"),
+                    is_reply: true,
+                    attach: None,
+                }
             }
         } else if message_reply_to
             .map(|message_id| self.has_insult_response(channel_id, message_id, message_content))
             .unwrap_or(false)
         {
-            BotCmd::SendAttachment {
-                name: SmolStr::new_inline("umad.jpg"),
-                data: UMAD_JPG.to_vec(),
+            BotCmd::SendMessage {
+                text: SmolStr::new_inline(""),
+                is_reply: true,
+                attach: Some((SmolStr::new_inline("umad.jpg"), UMAD_JPG.to_vec())),
             }
-        } else if self.data.user_id == message_author {
-            if let Some(content) = self.try_insult(&channel_id, &message_id) {
-                BotCmd::SendText(content, true)
-            } else if let Some(content) = self.markov_try_gen_message(&channel_id, message_content)
-            {
-                BotCmd::SendText(content, false)
+        } else if self.data.user_id != message_author {
+            if let Some(text) = self.try_insult(&channel_id, &message_id) {
+                BotCmd::SendMessage {
+                    text,
+                    is_reply: true,
+                    attach: None,
+                }
+            } else if let Some(text) = self.markov_try_gen_message(&channel_id, message_content) {
+                BotCmd::SendMessage {
+                    text,
+                    is_reply: false,
+                    attach: None,
+                }
             } else {
                 BotCmd::DoNothing
             }
@@ -264,14 +287,11 @@ impl Bot {
         message_id: &str,
         message_content: &str,
     ) -> bool {
-        if let Some(data) = self.data.insult_data.get(channel_id) {
-            if let Some(msg_id) = data.message_id.as_deref() {
-                if message_content.contains("fuck you") && message_id == msg_id {
-                    return true;
-                }
-            }
-        }
-        false
+        self.data
+            .insult_data
+            .get(channel_id)
+            .map_or(false, |d| d.message_id.as_deref() == Some(message_id))
+            && message_content.contains("fuck you")
     }
 
     pub fn try_insult(&self, channel_id: &str, message_id: &str) -> Option<SmolStr> {

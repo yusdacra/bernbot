@@ -48,26 +48,43 @@ impl EventHandler for Bot {
             message_reply_to.as_deref(),
         );
         match bot_cmd {
-            BotCmd::SendAttachment { name, data } => {
-                perr!(send_attach(&ctx, &new_message, data, name.into()).await)
-            }
-            BotCmd::SendText(content, is_reply) => {
+            BotCmd::SendMessage {
+                text,
+                is_reply,
+                attach,
+            } => {
                 let content = serenity::utils::content_safe(
                     &ctx,
-                    content.as_str(),
+                    text.as_str(),
                     &ContentSafeOptions::default(),
                 )
                 .await;
 
-                if is_reply {
-                    perr!(new_message.reply(&ctx, content).await);
-                } else if let Some(chan) = new_message
+                if let Some(chan) = new_message
                     .guild(&ctx)
                     .await
                     .map(|mut g| g.channels.remove(&new_message.channel_id))
                     .flatten()
                 {
-                    perr!(chan.send_message(&ctx, |msg| msg.content(content)).await);
+                    let typing = ctx.http.start_typing(new_message.channel_id.0).unwrap();
+                    tokio::time::sleep(Duration::from_millis(750)).await;
+                    perr!(
+                        chan.send_message(&ctx, |msg| {
+                            let m = msg.content(content).allowed_mentions(|c| c.empty_parse());
+                            if is_reply {
+                                m.reference_message(&new_message);
+                            }
+                            if let Some((name, data)) = attach {
+                                m.add_file(AttachmentType::Bytes {
+                                    data: data.into(),
+                                    filename: name.into(),
+                                });
+                            }
+                            m
+                        })
+                        .await
+                    );
+                    typing.stop();
                 }
             }
             BotCmd::DoNothing => {}
@@ -97,29 +114,4 @@ pub async fn main(rt_handle: tokio::runtime::Handle) {
     .expect("couldnt set ctrlc handler");
 
     perr!(client.start().await);
-}
-
-async fn send_attach(
-    ctx: &Context,
-    msg: &Message,
-    data: Vec<u8>,
-    filename: String,
-) -> serenity::Result<()> {
-    let cid = msg.channel_id;
-    if let Some(chan) = msg
-        .guild(ctx)
-        .await
-        .map(|mut g| g.channels.remove(&cid))
-        .flatten()
-    {
-        chan.send_message(ctx, |msg| {
-            msg.add_file(AttachmentType::Bytes {
-                data: data.into(),
-                filename,
-            })
-        })
-        .await?;
-    }
-
-    Ok(())
 }
