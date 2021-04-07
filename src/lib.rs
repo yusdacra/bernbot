@@ -1,5 +1,11 @@
-use std::{fmt::Debug, path::Path, sync::Arc};
+use std::{
+    error::Error,
+    fmt::{self, Debug, Display, Formatter},
+    path::Path,
+    sync::Arc,
+};
 
+use async_trait::async_trait;
 use dashmap::DashMap;
 use markov::Chain;
 use rand::{prelude::IteratorRandom, Rng};
@@ -9,25 +15,37 @@ use smol_str::SmolStr;
 #[cfg(feature = "discord")]
 pub mod discord;
 
+pub const PREFIX: &str = "b/";
+pub const PRESENCE: &str = "b/help | G-go for it, yay. Mii, nipah~☆";
+pub const CHANNEL_MARK_MSG: &str =
+    "First set this channel for listening, dumb human.\nA tip: you can do so with `b/listen`.";
+pub const NOT_ENOUGH_PERMS: &str = "Foolish human, you don't have enough permissions to do this.";
+
 pub const POEMS: &str = include_str!("../resources/poems.txt");
 pub const INSULTS: &str = include_str!("../resources/insults.txt");
 pub const UMAD_JPG: &[u8] = include_bytes!("../resources/umad.jpg");
 
 pub const HELP_TEXT: &str = "commands are:
 - `help`: posts this text
-- `poem`: search / get random poem or generate one
+- `poem`: search / get random poem
+- `gen`: generate stuff from markov chains
 - `listen`: markov chain listener management commands
 - `fuckyou`: posts funny \"u mad?\" image
 
 use `help command` to get more information about a command";
 
+pub const GEN_HELP_TEXT: &str = "generate stuff from markov chains
+
+if called with no arguments it will generate random text using the channel's markov chain
+if called with a user id it will generate random text using the user's markov chain in this channel
+
+subcommands are:
+- `poem`: generates a random poem";
+
 pub const POEM_HELP_TEXT: &str = "search / get random poem or generate one
 
 if called with no arguments it will get a random poem
-arguments are counted as search keywords unless it's a subcommand
-
-subcommands are:
-- `~gen`: generates a random poem";
+arguments are counted as search keywords";
 
 pub const FUCKYOU_HELP_TEXT: &str = "posts funny \"u mad?\" image";
 
@@ -41,10 +59,51 @@ subcommands are:
 
 type MChain = Chain<SmolStr>;
 
+#[async_trait]
+pub trait Handler: Send + Sync {
+    type Error;
+
+    async fn send_message(
+        &self,
+        text: &str,
+        attach: Option<(&str, Vec<u8>)>,
+        reply: bool,
+    ) -> Result<SmolStr, BotError<Self::Error>>;
+
+    async fn author_has_manage_perm(&self) -> Result<bool, BotError<Self::Error>>;
+
+    fn referenced_id(&self) -> Option<&str>;
+    fn id(&self) -> &str;
+    fn author(&self) -> &str;
+    fn content(&self) -> &str;
+    fn channel_id(&self) -> &str;
+    fn guild_id(&self) -> Option<&str>;
+}
+
+#[derive(Debug)]
+pub enum BotError<E> {
+    Handler(E),
+}
+
+impl<E: Display> Display for BotError<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            BotError::Handler(err) => write!(f, "error occured in handler: {}", err),
+        }
+    }
+}
+
+impl<E> From<E> for BotError<E> {
+    fn from(err: E) -> Self {
+        BotError::Handler(err)
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MarkovData {
     probability: f64,
     chain: MChain,
+    per_user: DashMap<SmolStr, MChain>,
 }
 
 impl Default for MarkovData {
@@ -52,6 +111,7 @@ impl Default for MarkovData {
         Self {
             probability: 5.0,
             chain: MChain::new(),
+            per_user: DashMap::new(),
         }
     }
 }
@@ -71,19 +131,8 @@ impl Default for InsultData {
     }
 }
 
-#[derive(Debug)]
-pub enum BotCmd {
-    SendMessage {
-        text: SmolStr,
-        attach: Option<(SmolStr, Vec<u8>)>,
-        is_reply: bool,
-    },
-    DoNothing,
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 struct BotData {
-    prefix: SmolStr,
     user_id: SmolStr,
     insult_data: DashMap<SmolStr, InsultData>,
     mchain: DashMap<SmolStr, MarkovData>,
@@ -96,10 +145,9 @@ pub struct Bot {
 }
 
 impl Bot {
-    pub fn new(prefix: SmolStr, user_id: SmolStr) -> Self {
+    pub fn new(user_id: SmolStr) -> Self {
         Self {
             data: Arc::new(BotData {
-                prefix,
                 user_id,
                 insult_data: DashMap::new(),
                 mchain: DashMap::new(),
@@ -119,11 +167,25 @@ impl Bot {
         })
     }
 
+    pub fn start_autosave_task(&self, data_path: impl AsRef<Path>) {
+        let bot = self.clone();
+        let data_path = data_path.as_ref().to_owned();
+        tokio::spawn(async move {
+            loop {
+                if let Err(err) = bot.save_to(&data_path) {
+                    tracing::error!("couldnt save bot data: {}", err);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+    }
+
     pub fn save_to(&self, data_path: impl AsRef<Path>) -> Result<(), std::io::Error> {
         std::fs::write(
             data_path,
             lz4_flex::compress_prepend_size(
-                ron::ser::to_string_pretty(&self.data, ron::ser::PrettyConfig::default())
+                ron::ser::to_string(&self.data)
                     .expect("couldnt serialize")
                     .as_bytes(),
             ),
@@ -133,12 +195,12 @@ impl Bot {
     pub fn markov_toggle_mark_channel(&self, channel_id: &str) -> SmolStr {
         if self.data.mchain.contains_key(channel_id) {
             self.data.mchain.remove(channel_id);
-            "Will no longer listen to this channel".into()
+            SmolStr::new_inline("unmarked channel")
         } else {
             self.data
                 .mchain
                 .insert(channel_id.into(), Default::default());
-            "Will listen to this channel".into()
+            SmolStr::new_inline("marked channel")
         }
     }
 
@@ -148,7 +210,7 @@ impl Bot {
             data.probability = prob;
             format!("Set probability to {}%", prob).into()
         } else {
-            self.mark_channel_for_listen_msg()
+            CHANNEL_MARK_MSG.into()
         }
     }
 
@@ -156,115 +218,130 @@ impl Bot {
         if let Some(data) = self.data.mchain.get(channel_id) {
             format!("Probability is {}%", data.probability).into()
         } else {
-            self.mark_channel_for_listen_msg()
+            CHANNEL_MARK_MSG.into()
         }
     }
 
-    fn mark_channel_for_listen_msg(&self) -> SmolStr {
-        format!(
-            "First set this channel for listening, dumb human.\nA tip: you can do so with `{} listen`.",
-            self.data.prefix
-        ).into()
-    }
-
-    pub async fn process_args(
+    pub async fn process_args<E: Error>(
         &self,
-        channel_id: &str,
-        message_id: &str,
-        message_content: &str,
-        message_author: &str,
-        message_reply_to: Option<&str>,
-    ) -> BotCmd {
-        let mut args = message_content.split_whitespace();
+        handler: &dyn Handler<Error = E>,
+    ) -> Result<(), BotError<E>> {
         #[allow(clippy::blocks_in_if_conditions)]
-        if args.next() == Some(&self.data.prefix) {
+        if let Some(args) = handler.content().strip_prefix(PREFIX) {
+            let mut args = args.split_whitespace();
             if let Some(cmd) = args.next() {
                 match cmd {
-                    "help" => BotCmd::SendMessage {
-                        text: if let Some(subcmd) = args.next() {
+                    "help" => {
+                        let mut insulted = false;
+                        let text = if let Some(subcmd) = args.next() {
                             match subcmd {
                                 "poem" => POEM_HELP_TEXT.into(),
                                 "listen" => LISTEN_HELP_TEXT.into(),
                                 "fuckyou" => FUCKYOU_HELP_TEXT.into(),
-                                "help" => HELP_TEXT.into(),
-                                cmd => self.unrecognised_command(channel_id, message_id, cmd),
+                                "gen" => GEN_HELP_TEXT.into(),
+                                cmd => {
+                                    insulted = true;
+                                    self.unrecognised_command(cmd)
+                                }
                             }
                         } else {
                             HELP_TEXT.into()
-                        },
-                        is_reply: true,
-                        attach: None,
-                    },
-                    "poem" => BotCmd::SendMessage {
-                        text: self.process_poem_command(
-                            message_content
-                                .trim_start_matches(self.data.prefix.as_str())
-                                .trim_start_matches(" poem "),
-                        ),
-                        is_reply: true,
-                        attach: None,
-                    },
-                    "fuckyou" => BotCmd::SendMessage {
-                        text: SmolStr::new_inline(""),
-                        is_reply: true,
-                        attach: Some((SmolStr::new_inline("umad.jpg"), UMAD_JPG.to_vec())),
-                    },
-                    "listen" => BotCmd::SendMessage {
-                        text: if let Some(subcmd) = args.next() {
+                        };
+                        let id = handler.send_message(&text, None, true).await?;
+                        if insulted {
+                            self.insult(handler.channel_id(), id);
+                        }
+                    }
+                    "poem" => {
+                        let text = self.process_poem_command(
+                            args.map(|c| {
+                                let mut s = c.to_owned();
+                                s.push(' ');
+                                s
+                            })
+                            .collect::<String>()
+                            .trim_end(),
+                        );
+                        handler.send_message(&text, None, true).await?;
+                    }
+                    "fuckyou" => {
+                        handler
+                            .send_message("", Some(("umad.jpg", UMAD_JPG.to_vec())), true)
+                            .await?;
+                    }
+                    "gen" => {
+                        let text = if let Some(subcmd) = args.next() {
                             match subcmd {
-                                "setprob" => {
-                                    self.markov_set_prob(channel_id, args.next().unwrap_or("5.0"))
-                                }
-                                "getprob" => self.markov_get_prob(channel_id),
-                                _ => self.unrecognised_command(channel_id, message_id, subcmd),
+                                "poem" => self.generate_poem(),
+                                user => self.gen_user_message(handler.channel_id(), user),
                             }
                         } else {
-                            self.markov_toggle_mark_channel(channel_id)
-                        },
-                        is_reply: true,
-                        attach: None,
-                    },
-                    cmd => BotCmd::SendMessage {
-                        text: self.unrecognised_command(channel_id, message_id, cmd),
-                        is_reply: true,
-                        attach: None,
-                    },
+                            self.gen_message(handler.channel_id())
+                        };
+                        handler.send_message(&text, None, true).await?;
+                    }
+                    "listen" => {
+                        let mut insulted = false;
+                        let text = if let Some(subcmd) = args.next() {
+                            match subcmd {
+                                "prob" => {
+                                    if let Some(new_prob) = args.next() {
+                                        if handler.author_has_manage_perm().await? {
+                                            self.markov_set_prob(handler.channel_id(), new_prob)
+                                        } else {
+                                            NOT_ENOUGH_PERMS.into()
+                                        }
+                                    } else {
+                                        self.markov_get_prob(handler.channel_id())
+                                    }
+                                }
+                                cmd => {
+                                    insulted = true;
+                                    self.unrecognised_command(cmd)
+                                }
+                            }
+                        } else if handler.author_has_manage_perm().await? {
+                            self.markov_toggle_mark_channel(handler.channel_id())
+                        } else {
+                            NOT_ENOUGH_PERMS.into()
+                        };
+                        let id = handler.send_message(&text, None, true).await?;
+                        if insulted {
+                            self.insult(handler.channel_id(), id);
+                        }
+                    }
+                    cmd => {
+                        let id = handler
+                            .send_message(&self.unrecognised_command(cmd), None, true)
+                            .await?;
+                        self.insult(handler.channel_id(), id);
+                    }
                 }
             } else {
-                BotCmd::SendMessage {
-                    text: SmolStr::new_inline("What do you want?"),
-                    is_reply: true,
-                    attach: None,
-                }
+                handler
+                    .send_message("What do you want?", None, true)
+                    .await?;
             }
-        } else if message_reply_to.map_or(false, |message_id| {
-            self.has_insult_response(channel_id, message_id, message_content)
-        }) {
-            BotCmd::SendMessage {
-                text: SmolStr::new_inline(""),
-                is_reply: true,
-                attach: Some((SmolStr::new_inline("umad.jpg"), UMAD_JPG.to_vec())),
+        } else if self.data.user_id != handler.author() {
+            let markov = self.markov_try_gen_message(
+                handler.channel_id(),
+                handler.content(),
+                handler.author(),
+            );
+            if handler.referenced_id().map_or(false, |message_id| {
+                self.has_insult_response(handler.channel_id(), message_id, handler.content())
+            }) {
+                handler
+                    .send_message("", Some(("umad.jpg", UMAD_JPG.to_vec())), true)
+                    .await?;
+            } else if let Some(text) = self.try_insult(handler.channel_id()) {
+                let id = handler.send_message(&text, None, true).await?;
+                self.insult(handler.channel_id(), id);
+            } else if let Some(text) = markov {
+                handler.send_message(&text, None, false).await?;
             }
-        } else if self.data.user_id != message_author {
-            if let Some((text, is_reply)) = self
-                .try_insult(&channel_id, &message_id)
-                .map(|text| (text, true))
-                .or_else(|| {
-                    self.markov_try_gen_message(&channel_id, message_content)
-                        .map(|text| (text, false))
-                })
-            {
-                BotCmd::SendMessage {
-                    text,
-                    is_reply,
-                    attach: None,
-                }
-            } else {
-                BotCmd::DoNothing
-            }
-        } else {
-            BotCmd::DoNothing
         }
+        Ok(())
     }
 
     pub fn insult_entry(
@@ -279,11 +356,10 @@ impl Bot {
         self.data.insult_data.get_mut(channel_id).unwrap()
     }
 
-    pub fn insult(&self, channel_id: &str, message_id: &str) -> String {
+    pub fn insult(&self, channel_id: &str, message_id: SmolStr) {
         let mut insult_data = self.insult_entry(channel_id);
         insult_data.count_passed = 1;
-        insult_data.message_id = Some(message_id.into());
-        choose_random_insult().to_string()
+        insult_data.message_id = Some(message_id);
     }
 
     pub fn has_insult_response(
@@ -292,15 +368,17 @@ impl Bot {
         message_id: &str,
         message_content: &str,
     ) -> bool {
-        self.insult_entry(channel_id).message_id.as_deref() == Some(message_id)
-            && message_content.contains("fuck you")
+        message_content.contains("fuck you")
+            && self
+                .data
+                .insult_data
+                .get(channel_id)
+                .map_or(false, |d| d.message_id.as_deref() == Some(message_id))
     }
 
-    pub fn try_insult(&self, channel_id: &str, message_id: &str) -> Option<SmolStr> {
+    pub fn try_insult(&self, channel_id: &str) -> Option<SmolStr> {
         let mut insult_data = self.insult_entry(channel_id);
         if rand::thread_rng().gen_bool(0.05 * (insult_data.count_passed as f64) / 100.0) {
-            insult_data.count_passed = 1;
-            insult_data.message_id = Some(message_id.into());
             Some(choose_random_insult().into())
         } else {
             insult_data.count_passed = insult_data.count_passed.saturating_add(1);
@@ -308,18 +386,60 @@ impl Bot {
         }
     }
 
+    pub fn gen_user_message(&self, channel_id: &str, message_author: &str) -> SmolStr {
+        if let Some(mlisten) = self.data.mchain.get(channel_id) {
+            if let Some(chain) = mlisten.per_user.get(message_author) {
+                let tokens = chain.generate().into_iter().take(32).collect::<Vec<_>>();
+                let mut result = String::with_capacity(tokens.iter().map(SmolStr::len).sum());
+                for token in tokens {
+                    result.push_str(&token);
+                    result.push(' ');
+                }
+                result.into()
+            } else {
+                "User has no messages recorded".into()
+            }
+        } else {
+            CHANNEL_MARK_MSG.into()
+        }
+    }
+
+    pub fn gen_message(&self, channel_id: &str) -> SmolStr {
+        if let Some(mlisten) = self.data.mchain.get(channel_id) {
+            let tokens = mlisten
+                .chain
+                .generate()
+                .into_iter()
+                .take(32)
+                .collect::<Vec<_>>();
+            let mut result = String::with_capacity(tokens.iter().map(SmolStr::len).sum());
+            for token in tokens {
+                result.push_str(&token);
+                result.push(' ');
+            }
+            result.into()
+        } else {
+            CHANNEL_MARK_MSG.into()
+        }
+    }
+
     pub fn markov_try_gen_message(
         &self,
         channel_id: &str,
         message_content: &str,
+        message_author: &str,
     ) -> Option<SmolStr> {
         if let Some(mut mlisten) = self.data.mchain.get_mut(channel_id) {
-            mlisten.chain.feed(
-                &message_content
-                    .split_whitespace()
-                    .map(SmolStr::new)
-                    .collect::<Vec<_>>(),
-            );
+            let tokens = message_content
+                .split_whitespace()
+                .map(SmolStr::new)
+                .collect::<Vec<_>>();
+            mlisten.chain.feed(&tokens);
+            mlisten
+                .per_user
+                .entry(message_author.into())
+                .or_default()
+                .feed(&tokens);
             if rand::thread_rng().gen_bool(mlisten.probability / 100.0) {
                 let tokens = mlisten
                     .chain
@@ -338,74 +458,67 @@ impl Bot {
         None
     }
 
-    pub fn unrecognised_command(&self, channel_id: &str, message_id: &str, cmd: &str) -> SmolStr {
-        format!(
-            "{}`{}` isn't even a command.",
-            self.insult(channel_id, message_id),
-            cmd
-        )
-        .into()
+    pub fn unrecognised_command(&self, cmd: &str) -> SmolStr {
+        format!("{}`{}` isn't even a command.", choose_random_insult(), cmd).into()
+    }
+
+    pub fn generate_poem(&self) -> SmolStr {
+        let poem_chain = &self.poem_chain;
+
+        let mut output = String::new();
+        let some_tokens = poem_chain.generate();
+
+        let mut rng = rand::thread_rng();
+        let start_token = some_tokens
+            .iter()
+            .filter(|c| c.chars().next().unwrap().is_uppercase())
+            .choose(&mut rng)
+            .unwrap()
+            .clone();
+        let seperate_by = rng.gen_range(2..=3);
+        let poem_lines = rng.gen_range(6..=8);
+        let is_sentence_end = |c| matches!(c, '.' | '!' | '?');
+        let mut sentences = Vec::with_capacity(poem_lines);
+        let mut sentence = Vec::new();
+        let mut sentence_count = 0;
+        for token in poem_chain.generate_from_token(start_token) {
+            if sentence_count > 7 {
+                break;
+            }
+            if token.ends_with(is_sentence_end) {
+                sentence_count += 1;
+                sentence.push(token);
+                sentences.push(sentence.drain(..).collect::<Vec<_>>());
+            } else {
+                sentence.push(token);
+            }
+        }
+        for (index, sentence) in sentences.into_iter().enumerate() {
+            for word in sentence {
+                output.push_str(&word);
+                output.push(' ');
+            }
+            output.push('\n');
+            if index % seperate_by == 0 {
+                output.push('\n');
+            }
+        }
+        output.into()
     }
 
     pub fn process_poem_command(&self, keywords: &str) -> SmolStr {
-        let poem_chain = &self.poem_chain;
-
         if keywords.is_empty() {
             choose_random_poem().into()
-        } else if keywords == "~gen" {
-            let mut output = String::new();
-            let some_tokens = poem_chain.generate();
-
-            let mut rng = rand::thread_rng();
-            let start_token = some_tokens
-                .iter()
-                .filter(|c| c.chars().next().unwrap().is_uppercase())
-                .choose(&mut rng)
-                .unwrap()
-                .clone();
-            let seperate_by = rng.gen_range(2..=3);
-            let poem_lines = rng.gen_range(6..=8);
-            let is_sentence_end = |c| matches!(c, '.' | '!' | '?');
-            let mut sentences = Vec::with_capacity(poem_lines);
-            let mut sentence = Vec::new();
-            let mut sentence_count = 0;
-            for token in poem_chain.generate_from_token(start_token) {
-                if sentence_count > 7 {
-                    break;
-                }
-                if token.ends_with(is_sentence_end) {
-                    sentence_count += 1;
-                    sentence.push(token);
-                    sentences.push(sentence.drain(..).collect::<Vec<_>>());
-                } else {
-                    sentence.push(token);
-                }
-            }
-            for (index, sentence) in sentences.into_iter().enumerate() {
-                for word in sentence {
-                    output.push_str(&word);
-                    output.push(' ');
-                }
-                output.push('\n');
-                if index % seperate_by == 0 {
-                    output.push('\n');
-                }
-            }
-            output.into()
         } else {
             let ranker = fuzzy_matcher::skim::SkimMatcherV2::default();
             let mut ranked = POEMS
                 .split('-')
                 .filter_map(|choice| {
                     let score = ranker.fuzzy(choice, keywords, false)?.0;
-                    if score > 100 {
-                        Some((choice, score))
-                    } else {
-                        None
-                    }
+                    (score > 10).then(|| (choice, score))
                 })
                 .collect::<Vec<_>>();
-            ranked.sort_by_key(|(_, k)| *k);
+            ranked.sort_unstable_by_key(|(_, k)| *k);
             if let Some((result, _)) = ranked.last() {
                 (*result).into()
             } else {
