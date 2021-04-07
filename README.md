@@ -1,6 +1,6 @@
 # bernbot
 
-`bernbot` is a Discord (soon to be supported for Matrix and Harmony) bot. It is inspired by "Bernkastel" from Umineko.
+`bernbot` is a Discord and Harmony (soon to be supported for Matrix) bot. It is inspired by "Bernkastel" from Umineko.
 
 ## Features
 

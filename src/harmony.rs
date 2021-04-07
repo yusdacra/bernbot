@@ -1,4 +1,3 @@
-//! Example showcasing a very simple echo bot.
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
