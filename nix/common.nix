@@ -1,7 +1,11 @@
-{ sources, system }:
+{ cargoToml, sources, system }:
 let
   pkgz = import sources.nixpkgs { inherit system; overlays = [ sources.rustOverlay.overlay ]; };
-  rust = pkgz.rust-bin."stable".latest.rust.override {
+  baseRustToolchain =
+    if (isNull (cargoToml.package.metadata.nix.toolchain or null))
+    then (pkgz.rust-bin.fromRustupToolchainFile "../rust-toolchain")
+    else pkgz.rust-bin."${cargoToml.package.metadata.nix.toolchain}".latest.rust;
+  rust = baseRustToolchain.override {
     extensions = [ "rust-src" ];
   };
 
@@ -18,9 +22,11 @@ let
       })
     ];
   };
+  nixMetadata = cargoToml.package.metadata.nix;
+  mapToPkgs = list: map (pkg: pkgs."${pkg}") list;
 in
 {
-  inherit pkgs;
+  inherit pkgs cargoToml;
 
   /* You might need this if your application utilizes a GUI. Note that the dependencies
     might change from application to application. The example dependencies provided here
@@ -28,27 +34,30 @@ in
 
     For example, it might look like this:
 
-    neededLibs = with pkgs; (with xorg; [ libX11 libXcursor libXrandr libXi ])
+    runtimeLibs = with pkgs; (with xorg; [ libX11 libXcursor libXrandr libXi ])
     ++ [ vulkan-loader wayland wayland-protocols libxkbcommon ];
   */
-  neededLibs = [ ];
+  runtimeLibs = with pkgs; ([ ] ++ (mapToPkgs (nixMetadata.runtimeLibs or [ ])));
 
   # Dependencies listed here will be passed to Nix build and development shell
   crateDeps =
     with pkgs;
     {
-      buildInputs = [ /* Add runtime dependencies here */ ];
-      nativeBuildInputs = [ binutils ];
+      buildInputs = [ protobuf ] ++ (mapToPkgs (nixMetadata.buildInputs or [ ]));
+      nativeBuildInputs = [ binutils ] ++ (mapToPkgs (nixMetadata.nativeBuildInputs or [ ]));
     };
 
   /* Put env variables here, like so:
 
-    env = with pkgs.lib; [
-      (nameValuePair "PROTOC" "${pkgs.protobuf}/bin/protoc")
-    ];
+    env = {
+      PROTOC = "${pkgs.protobuf}/bin/protoc";
+    };
 
     The variables are not (shell) escaped.
     Variables put here will appear in both dev env and build env.
   */
-  env = [ ];
+  env = {
+    PROTOC = "${pkgs.protobuf}/bin/protoc";
+    PROTOC_INCLUDE = "${pkgs.protobuf}/include";
+  } // (nixMetadata.env or { });
 }

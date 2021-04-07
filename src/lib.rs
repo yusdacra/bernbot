@@ -15,6 +15,8 @@ use smol_str::SmolStr;
 
 #[cfg(feature = "discord")]
 pub mod discord;
+#[cfg(feature = "harmony")]
+pub mod harmony;
 
 pub const PREFIX: &str = "b/";
 pub const PRESENCE: &str = "b/help | G-go for it, yay. Mii, nipah~☆";

@@ -6,8 +6,8 @@ edition = "2018"
 license = "GPL3"
 
 [dependencies]
-tokio = { version = "1.4", features = ["rt-multi-thread", "macros", "parking_lot"] }
-serenity = { version = "0.10", optional = true, default-features = false, features = [
+tokio = { version = "1.4", features = ["rt-multi-thread", "macros", "parking_lot", "time"] }
+discord = { package = "serenity", version = "0.10", optional = true, default-features = false, features = [
     "http",
     "client",
     "cache",
@@ -16,6 +16,10 @@ serenity = { version = "0.10", optional = true, default-features = false, featur
     "rustls_backend",
     "gateway",
     "builder",
+] }
+harmony = { package = "harmony_rust_sdk", version = "0.5", optional = true, default-features = false, features = [
+    "client",
+    "parking_lot",
 ] }
 rand = "0.8"
 ctrlc = { version = "3.1", features = ["termination"] }
@@ -33,6 +37,12 @@ fuzzy-matcher = "0.3"
 async-trait = "0.1"
 arrayvec = "0.7"
 
-[features]
-default = ["discord"]
-discord = ["serenity"]
+[package.metadata.nix]
+# Toggle app flake output
+app = true
+# Toggle flake outputs that build (checks, package and app)
+build = true
+# Whether to copy built library to package output
+library = false
+# Toolchain to be used
+toolchain = "stable"

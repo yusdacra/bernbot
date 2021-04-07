@@ -3,8 +3,7 @@ use std::time::Duration;
 use crate::{BotError, Handler, PRESENCE};
 
 use super::{perr, Bot};
-use rand::Rng;
-use serenity::{
+use discord::{
     async_trait,
     client::{Client, Context, EventHandler},
     http::AttachmentType,
@@ -14,6 +13,7 @@ use serenity::{
     },
     utils::ContentSafeOptions,
 };
+use rand::Rng;
 use smol_str::SmolStr;
 
 const DATA_PATH: &str = "data_discord";
@@ -30,15 +30,15 @@ struct DiscordHandler<'a> {
 
 #[async_trait]
 impl<'a> Handler for DiscordHandler<'a> {
-    type Error = serenity::Error;
+    type Error = discord::Error;
 
     async fn author_has_manage_perm(&self) -> Result<bool, BotError<Self::Error>> {
         Ok(self
             .msg
             .guild(self.ctx)
             .await
-            .ok_or(serenity::Error::Model(
-                serenity::model::ModelError::GuildNotFound,
+            .ok_or(discord::Error::Model(
+                discord::model::ModelError::GuildNotFound,
             ))?
             .member(self.ctx, self.msg.author.id)
             .await?
@@ -54,7 +54,7 @@ impl<'a> Handler for DiscordHandler<'a> {
         reply: bool,
     ) -> Result<SmolStr, BotError<Self::Error>> {
         let content =
-            serenity::utils::content_safe(self.ctx, text, &ContentSafeOptions::default()).await;
+            discord::utils::content_safe(self.ctx, text, &ContentSafeOptions::default()).await;
 
         let typing = self.ctx.http.start_typing(self.msg.channel_id.0).unwrap();
         let millis = rand::thread_rng().gen_range(400..=800);
@@ -142,7 +142,7 @@ pub async fn main(rt_handle: tokio::runtime::Handle) {
 
     let bot = Bot::read_from(DATA_PATH).unwrap_or_else(|_| {
         let user_id = rt_handle
-            .block_on(serenity::http::client::Http::new_with_token(&token).get_current_user())
+            .block_on(discord::http::client::Http::new_with_token(&token).get_current_user())
             .expect("expect user")
             .id
             .0

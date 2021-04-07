@@ -10,7 +10,7 @@
 /.direnv
 /.envrc
 
-/.vscode
-/shell.nix
-/data_*
+/data_discord
 /log
+/shell.nix
+/.vscode
