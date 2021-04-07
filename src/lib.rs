@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use arrayvec::ArrayVec;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use markov::Chain;
@@ -406,12 +407,7 @@ impl Bot {
 
     pub fn gen_message(&self, channel_id: &str) -> SmolStr {
         if let Some(mlisten) = self.data.mchain.get(channel_id) {
-            let tokens = mlisten
-                .chain
-                .generate()
-                .into_iter()
-                .take(32)
-                .collect::<Vec<_>>();
+            let tokens: ArrayVec<_, 32> = mlisten.chain.generate().into_iter().take(32).collect();
             let mut result = String::with_capacity(tokens.iter().map(SmolStr::len).sum());
             for token in tokens {
                 result.push_str(&token);
@@ -441,12 +437,8 @@ impl Bot {
                 .or_default()
                 .feed(&tokens);
             if rand::thread_rng().gen_bool(mlisten.probability / 100.0) {
-                let tokens = mlisten
-                    .chain
-                    .generate()
-                    .into_iter()
-                    .take(32)
-                    .collect::<Vec<_>>();
+                let tokens: ArrayVec<_, 32> =
+                    mlisten.chain.generate().into_iter().take(32).collect();
                 let mut result = String::with_capacity(tokens.iter().map(SmolStr::len).sum());
                 for token in tokens {
                     result.push_str(&token);
@@ -459,7 +451,7 @@ impl Bot {
     }
 
     pub fn unrecognised_command(&self, cmd: &str) -> SmolStr {
-        format!("{}`{}` isn't even a command.", choose_random_insult(), cmd).into()
+        format!("{}`{}` isn't a command.", choose_random_insult(), cmd).into()
     }
 
     pub fn generate_poem(&self) -> SmolStr {

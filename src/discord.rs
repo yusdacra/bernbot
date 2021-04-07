@@ -133,7 +133,7 @@ impl EventHandler for Bot {
             guild_id,
         };
 
-        perr!(self.process_args(&handler,).await);
+        perr!(self.process_args(&handler).await);
     }
 }
 
