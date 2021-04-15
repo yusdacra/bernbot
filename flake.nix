@@ -17,7 +17,7 @@
             overrides = {
               build = common: prevb: {
                 name = "${prevb.name}-${platform}";
-                cargoBuildOptions = def: (prevb.cargoBuildOptions def) ++ [ "--features" platform ];
+                cargoBuildOptions = def: def ++ ((prevb.cargoBuildOptions or (_: [ ])) def) ++ [ "--features" platform ];
               };
             };
           };
