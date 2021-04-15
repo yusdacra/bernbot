@@ -10,7 +10,6 @@
   outputs = inputs:
     let
       lib = inputs.nixpkgs.lib;
-      mapToPlatform = platform: lib.mapAttrs (_: lib.mapAttrs' (name: lib.nameValuePair "${name}-${platform}"));
       mkPlatform = platform:
         let
           outputs = inputs.nixCargoIntegration.lib.makeOutputs {
@@ -25,7 +24,7 @@
         lib.mapAttrs
           (name: attrs:
             if lib.any (x: x == name) [ "apps" "checks" "packages" ]
-            then (mapToPlatform platform) attrs
+            then lib.mapAttrs (_: lib.mapAttrs' (name: lib.nameValuePair "${name}-${platform}")) attrs
             else attrs
           )
           outputs;
