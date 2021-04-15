@@ -11,6 +11,6 @@
 /.envrc
 
 /data_discord
+/data_harmony
 /log
-/shell.nix
 /.vscode
