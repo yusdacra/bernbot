@@ -33,7 +33,7 @@
       outputs = lib.foldAttrs lib.recursiveUpdate { } platforms;
     in
     outputs // {
-      defaultPackage.x86_64-linux = outputs.packages.x86_64-linux.bernbot-discord;
-      defaultApp.x86_64-linux = outputs.apps.x86_64-linux.bernbot-discord;
+      defaultPackage = lib.mapAttrs (_: pkgs: pkgs.bernbot-discord) outputs.packages;
+      defaultApp = lib.mapAttrs (_: apps: apps.bernbot-discord) outputs.apps;
     };
 }
