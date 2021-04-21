@@ -6,7 +6,7 @@ edition = "2018"
 license = "GPL3"
 
 [dependencies]
-tokio = { version = "1.4", features = ["rt-multi-thread", "macros", "parking_lot", "time"] }
+tokio = { version = "1.5", features = ["rt-multi-thread", "macros", "parking_lot", "time"] }
 discord = { package = "serenity", version = "0.10", optional = true, default-features = false, features = [
     "http",
     "client",
