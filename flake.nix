@@ -1,9 +1,14 @@
 {
   inputs = {
+    naersk = {
+      url = "github:yusdacra/naersk/feat/git-submodule";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     nixCargoIntegration = {
       url = "github:yusdacra/nix-cargo-integration";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.naersk.follows = "naersk";
     };
   };
 
@@ -16,8 +21,10 @@
             root = ./.;
             overrides = {
               build = common: prevb: {
+                allRefs = true;
+                submodules = true;
                 name = "${prevb.name}-${platform}";
-                cargoBuildOptions = def: def ++ ((prevb.cargoBuildOptions or (_: [ ])) def) ++ [ "--features" platform ];
+                cargoBuildOptions = def: ((prevb.cargoBuildOptions or (_: [ ])) def) ++ [ "--features" platform ];
               };
             };
           };
