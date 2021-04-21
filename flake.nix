@@ -23,6 +23,7 @@
               build = common: prevb: {
                 allRefs = true;
                 submodules = true;
+                nativeBuildInputs = prevb.nativeBuildInputs ++ [ common.pkgs.rustfmt ];
                 name = "${prevb.name}-${platform}";
                 cargoBuildOptions = def: ((prevb.cargoBuildOptions or (_: [ ])) def) ++ [ "--features" platform ];
               };

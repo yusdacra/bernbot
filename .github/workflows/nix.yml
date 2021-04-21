@@ -22,5 +22,5 @@ jobs:
       with:
         name: bernbot
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-    - name: Build
-      run: nix build .#bernbot-debug-discord -L --show-trace
+    - name: Tests
+      run: nix flake check -L --show-trace
