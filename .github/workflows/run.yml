@@ -19,4 +19,4 @@ jobs:
         name: bernbot
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
     - name: Run
-      run: DISCORD_TOKEN="${{ secrets.CACHIX_AUTH_TOKEN }}" nix run .#bernbot-debug-discord -L --show-trace
+      run: DISCORD_TOKEN="${{ secrets.DISCORD_TOKEN }}" nix run .#bernbot-debug-discord -L --show-trace
