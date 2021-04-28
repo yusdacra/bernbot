@@ -1,14 +1,9 @@
 {
   inputs = {
-    naersk = {
-      url = "github:yusdacra/naersk/feat/git-submodule";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     nixCargoIntegration = {
       url = "github:yusdacra/nix-cargo-integration";
       inputs.nixpkgs.follows = "nixpkgs";
-      inputs.naersk.follows = "naersk";
     };
   };
 
@@ -19,13 +14,10 @@
         let
           outputs = inputs.nixCargoIntegration.lib.makeOutputs {
             root = ./.;
+            buildPlatform = "crate2nix";
             overrides = {
               build = common: prevb: {
-                allRefs = true;
-                submodules = true;
-                nativeBuildInputs = prevb.nativeBuildInputs ++ [ common.pkgs.rustfmt ];
-                name = "${prevb.name}-${platform}";
-                cargoBuildOptions = def: ((prevb.cargoBuildOptions or (_: [ ])) def) ++ [ "--features" platform ];
+                rootFeatures = [ platform ];
               };
             };
           };
