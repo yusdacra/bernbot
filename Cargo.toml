@@ -42,5 +42,4 @@ app = true
 build = true
 env.PROTOC = "protoc"
 buildInputs = ["protobuf"]
-nativeBuildInputs = ["binutils"]
 systems = ["x86_64-linux"]
