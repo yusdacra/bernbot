@@ -18,10 +18,10 @@ pub mod discord;
 #[cfg(feature = "harmony")]
 pub mod harmony;
 
-pub const PREFIX: &str = "b/";
-pub const PRESENCE: &str = "b/help | G-go for it, yay. Mii, nipah~☆";
+pub const PREFIX_DEF: &str = "b/";
+pub const PRESENCE_DEF: &str = "G-go for it, yay. Mii, nipah~☆";
 pub const CHANNEL_MARK_MSG: &str =
-    "First set this channel for listening, dumb human.\nA tip: you can do so with `b/listen`.";
+    "First set this channel for listening, dumb human.\nA tip: you can do so with `listen`.";
 pub const NOT_ENOUGH_PERMS: &str = "Foolish human, you don't have enough permissions to do this.";
 
 pub const POEMS: &str = include_str!("../resources/poems.txt");
@@ -139,6 +139,7 @@ struct BotData {
     user_id: SmolStr,
     insult_data: DashMap<SmolStr, InsultData>,
     mchain: DashMap<SmolStr, MarkovData>,
+    prefix: DashMap<SmolStr, SmolStr>,
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +155,7 @@ impl Bot {
                 user_id,
                 insult_data: DashMap::new(),
                 mchain: DashMap::new(),
+                prefix: DashMap::new(),
             }),
             poem_chain: default_poem_chain().into(),
         }
@@ -229,8 +231,14 @@ impl Bot {
         &self,
         handler: &dyn Handler<Error = E>,
     ) -> Result<(), BotError<E>> {
+        let context_id = handler.guild_id().unwrap_or_else(|| handler.channel_id());
+        let prefix = self
+            .data
+            .prefix
+            .get(context_id)
+            .map_or(PREFIX_DEF.into(), |a| a.clone());
         #[allow(clippy::blocks_in_if_conditions)]
-        if let Some(args) = handler.content().strip_prefix(PREFIX) {
+        if let Some(args) = handler.content().strip_prefix(prefix.as_str()) {
             let mut args = args.split_whitespace();
             if let Some(cmd) = args.next() {
                 match cmd {
@@ -250,6 +258,39 @@ impl Bot {
                         } else {
                             HELP_TEXT.into()
                         };
+                        let id = handler.send_message(&text, None, true).await?;
+                        if insulted {
+                            self.insult(handler.channel_id(), id);
+                        }
+                    }
+                    "set" => {
+                        let mut insulted = false;
+                        let text = if handler.author_has_manage_perm().await? {
+                            if let Some(subcmd) = args.next() {
+                                match subcmd {
+                                    "prefix" => {
+                                        if let Some(value) = args.next() {
+                                            self.data
+                                                .prefix
+                                                .insert(context_id.into(), value.into());
+                                            format!("prefix is now `{}`.", value).into()
+                                        } else {
+                                            SmolStr::new_inline("no value")
+                                        }
+                                    }
+                                    cmd => {
+                                        insulted = true;
+                                        self.unrecognised_command(cmd)
+                                    }
+                                }
+                            } else {
+                                insulted = true;
+                                self.unrecognised_command(cmd)
+                            }
+                        } else {
+                            SmolStr::new_inline("not enough permissions")
+                        };
+
                         let id = handler.send_message(&text, None, true).await?;
                         if insulted {
                             self.insult(handler.channel_id(), id);

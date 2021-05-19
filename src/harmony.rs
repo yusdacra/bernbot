@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{perr, Bot, Handler};
+use crate::{perr, Bot, BotError, Handler};
 use harmony::{
     api::{chat::event, exports::hrpc::async_trait, harmonytypes::Message},
     client::{
@@ -47,7 +47,7 @@ impl<'a> Handler for HarmonyHandler<'a> {
         text: &str,
         attach: Option<(&str, Vec<u8>)>,
         reply: bool,
-    ) -> Result<SmolStr, crate::BotError<Self::Error>> {
+    ) -> Result<SmolStr, BotError<Self::Error>> {
         let mut send_message =
             SendMessage::new(self.message.guild_id, self.message.channel_id, text.into());
         if let Some((name, data)) = attach {
@@ -69,7 +69,7 @@ impl<'a> Handler for HarmonyHandler<'a> {
         Ok(new_message.message_id.to_string().into())
     }
 
-    async fn author_has_manage_perm(&self) -> Result<bool, crate::BotError<Self::Error>> {
+    async fn author_has_manage_perm(&self) -> Result<bool, BotError<Self::Error>> {
         let perm = permissions::query_has_permission(
             self.client,
             QueryPermissions::new(

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::{BotError, Handler, PRESENCE};
+use crate::{BotError, Handler, PRESENCE_DEF};
 
 use super::{perr, Bot};
 use discord::{
@@ -108,7 +108,10 @@ impl<'a> Handler for DiscordHandler<'a> {
 #[async_trait]
 impl EventHandler for Bot {
     async fn ready(&self, ctx: Context, _data_about_bot: Ready) {
-        ctx.set_activity(Activity::playing(PRESENCE)).await;
+        ctx.set_activity(Activity::playing(
+            option_env!("PRESENCE_MSG").unwrap_or(PRESENCE_DEF),
+        ))
+        .await;
 
         self.start_autosave_task(DATA_PATH);
     }
@@ -140,10 +143,14 @@ impl EventHandler for Bot {
 pub async fn main(rt_handle: tokio::runtime::Handle) {
     let token = std::env::var("DISCORD_TOKEN").expect("need token");
 
-    let user_id = discord::http::client::Http::new_with_token(&token).get_current_user().await.expect("user").id.0.to_string();
-    let bot = Bot::read_from(DATA_PATH).unwrap_or_else(|_| {
-        Bot::new(user_id.into())
-    });
+    let user_id = discord::http::client::Http::new_with_token(&token)
+        .get_current_user()
+        .await
+        .expect("user")
+        .id
+        .0
+        .to_string();
+    let bot = Bot::read_from(DATA_PATH).unwrap_or_else(|_| Bot::new(user_id.into()));
     let bot2 = bot.clone();
 
     let mut client = Client::builder(token)
