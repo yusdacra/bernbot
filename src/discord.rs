@@ -140,13 +140,8 @@ impl EventHandler for Bot {
 pub async fn main(rt_handle: tokio::runtime::Handle) {
     let token = std::env::var("DISCORD_TOKEN").expect("need token");
 
+    let user_id = discord::http::client::Http::new_with_token(&token).get_current_user().await.expect("user").id.0.to_string();
     let bot = Bot::read_from(DATA_PATH).unwrap_or_else(|_| {
-        let user_id = rt_handle
-            .block_on(discord::http::client::Http::new_with_token(&token).get_current_user())
-            .expect("expect user")
-            .id
-            .0
-            .to_string();
         Bot::new(user_id.into())
     });
     let bot2 = bot.clone();
