@@ -42,4 +42,4 @@ app = true
 build = true
 env.PROTOC = "protoc"
 buildInputs = ["protobuf"]
-systems = ["x86_64-linux"]
+systems = ["x86_64-linux", "aarch64-linux"]
