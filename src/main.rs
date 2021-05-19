@@ -14,7 +14,10 @@ fn main() {
         .with(file_logger)
         .init();
 
-    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     #[cfg(feature = "discord")]
     runtime.block_on(bernbot::discord::main(runtime.handle().clone()));
