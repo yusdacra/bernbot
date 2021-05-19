@@ -6,7 +6,7 @@ edition = "2018"
 license = "GPL3"
 
 [dependencies]
-tokio = { version = "1.5", features = ["rt-multi-thread", "macros", "parking_lot", "time"] }
+tokio = { version = "1.6", features = ["rt-multi-thread", "macros", "parking_lot", "time"] }
 discord = { package = "serenity", version = "0.10", optional = true, default-features = false, features = [
     "http",
     "client",
@@ -29,7 +29,7 @@ parking_lot = { version = "0.11", features = ["serde"] }
 ron = "0.6"
 smol_str = { version = "0.1", features = ["serde"] }
 dashmap = { version = "4.0", features = ["serde"] }
-lz4_flex = "0.7"
+lz4_flex = "0.8"
 tracing = "0.1"
 tracing-subscriber = "0.2"
 tracing-appender = "0.1"
