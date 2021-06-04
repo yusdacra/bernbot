@@ -479,9 +479,15 @@ impl Bot {
                 .entry(message_author.into())
                 .or_default()
                 .feed(&tokens);
-            if rand::thread_rng().gen_bool(mlisten.probability / 100.0) {
-                let tokens: ArrayVec<_, 32> =
-                    mlisten.chain.generate().into_iter().take(32).collect();
+            let mut rng = rand::thread_rng();
+            if rng.gen_bool(mlisten.probability / 100.0) {
+                let tokens: ArrayVec<_, 32> = mlisten
+                    .chain
+                    .generate()
+                    .into_iter()
+                    .take(32)
+                    .map(|s| typo(s, &mut rng))
+                    .collect();
                 let mut result = String::with_capacity(tokens.iter().map(SmolStr::len).sum());
                 for token in tokens {
                     result.push_str(&token);
@@ -587,6 +593,19 @@ pub fn choose_random_insult() -> &'static str {
         .split('-')
         .choose(&mut rand::thread_rng())
         .expect("always something in insults")
+}
+
+fn typo(s: SmolStr, rng: &mut rand::rngs::ThreadRng) -> SmolStr {
+    let mut chars = Vec::with_capacity(s.len());
+    for ch in s.chars() {
+        let ch = if rng.gen_bool(0.5 / 100.0) {
+            rng.gen_range(b'A'..b'z') as char
+        } else {
+            ch
+        };
+        chars.push(ch);
+    }
+    chars.into_iter().collect()
 }
 
 #[macro_export]
