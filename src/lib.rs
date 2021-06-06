@@ -4,9 +4,9 @@ use std::{
     ops::Not,
     path::Path,
     sync::Arc,
+    time::Duration,
 };
 
-use arrayvec::ArrayVec;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use markov::Chain;
@@ -225,9 +225,9 @@ impl Bot {
     }
 
     pub fn markov_set_prob(&self, channel_id: &str, new_prob: &str) -> SmolStr {
-        let prob = new_prob.parse().unwrap_or(5.0);
+        let prob = new_prob.parse().unwrap_or(5).min(100).max(0);
         if let Some(mut data) = self.data.mchain.get_mut(channel_id) {
-            data.probability = prob;
+            data.probability = prob as f64;
             format!("Set probability to {}%", prob).into()
         } else {
             CHANNEL_MARK_MSG.into()
@@ -419,6 +419,17 @@ impl Bot {
                 self.insult(handler.channel_id(), id);
             } else if let Some(text) = markov {
                 handler.send_message(&text, None, false).await?;
+                while let Some(text) = self.markov_try_gen_message(
+                    handler.channel_id(),
+                    handler.content(),
+                    handler.author(),
+                ) {
+                    if rand::thread_rng().gen_bool(10.0 / 100.0) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    handler.send_message(&text, None, false).await?;
+                }
             }
         }
         Ok(())
@@ -471,7 +482,7 @@ impl Bot {
     pub fn gen_user_message(&self, channel_id: &str, message_author: &str) -> SmolStr {
         if let Some(mlisten) = self.data.mchain.get(channel_id) {
             if let Some(chain) = mlisten.per_user.get(message_author) {
-                let tokens = chain.generate().into_iter().take(32).collect::<Vec<_>>();
+                let tokens = chain.generate();
                 let mut result = String::with_capacity(tokens.iter().map(SmolStr::len).sum());
                 for token in tokens {
                     result.push_str(&token);
@@ -488,7 +499,7 @@ impl Bot {
 
     pub fn gen_message(&self, channel_id: &str) -> SmolStr {
         if let Some(mlisten) = self.data.mchain.get(channel_id) {
-            let tokens: ArrayVec<_, 32> = mlisten.chain.generate().into_iter().take(32).collect();
+            let tokens = mlisten.chain.generate();
             let mut result = String::with_capacity(tokens.iter().map(SmolStr::len).sum());
             for token in tokens {
                 result.push_str(&token);
@@ -507,7 +518,7 @@ impl Bot {
         message_author: &str,
     ) -> Option<SmolStr> {
         if let Some(mut mlisten) = self.data.mchain.get_mut(channel_id) {
-            let tokens = message_content
+            let mut tokens = message_content
                 .split_whitespace()
                 .map(SmolStr::new)
                 .collect::<Vec<_>>();
@@ -519,13 +530,33 @@ impl Bot {
                 .feed(&tokens);
             let mut rng = rand::thread_rng();
             if mlisten.enabled && rng.gen_bool(mlisten.probability / 100.0) {
-                let tokens: ArrayVec<_, 32> = mlisten
+                let start_token = if tokens.is_empty() {
+                    mlisten.chain.iter_for(1).next().unwrap().pop().unwrap()
+                } else {
+                    tokens.remove(rng.gen_range(0..tokens.len()))
+                };
+
+                let mut tokens = mlisten
                     .chain
-                    .generate()
+                    .generate_from_token(start_token.clone())
                     .into_iter()
-                    .take(32)
                     .map(|s| typo(s, &mut rng))
-                    .collect();
+                    .collect::<Vec<_>>();
+
+                if tokens.is_empty() || (tokens.len() == 1 && tokens[0] == start_token) {
+                    tokens.clear();
+                    tokens.append(
+                        &mut mlisten
+                            .chain
+                            .generate()
+                            .into_iter()
+                            .map(|s| typo(s, &mut rng))
+                            .collect::<Vec<_>>(),
+                    );
+                }
+
+                tokens.truncate(rng.gen_range(16..32));
+
                 let mut result = String::with_capacity(tokens.iter().map(SmolStr::len).sum());
                 for token in tokens {
                     result.push_str(&token);
