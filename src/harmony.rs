@@ -25,6 +25,7 @@ use harmony::{
 };
 use rand::Rng;
 use smol_str::SmolStr;
+use tokio::{select, spawn};
 
 const DATA_PATH: &str = "data_harmony";
 
@@ -107,16 +108,16 @@ impl<'a> Handler for HarmonyHandler<'a> {
     }
 }
 
-static DID_CTRLC: AtomicBool = AtomicBool::new(false);
-
-pub async fn main(_rt_handle: tokio::runtime::Handle) -> ClientResult<()> {
+pub async fn main() -> ClientResult<()> {
     let session_token = std::env::var("HARMONY_TOKEN").expect("token");
     let user_id: SmolStr = std::env::var("HARMONY_ID").expect("user id").into();
 
     let server = std::env::var("HARMONY_SERVER")
         .unwrap_or_else(|_| "https://chat.harmonyapp.io:2289".to_string());
 
-    let bot = Bot::read_from(DATA_PATH).unwrap_or_else(|_| Bot::new(user_id.clone()));
+    let bot = Bot::read_from(DATA_PATH)
+        .await
+        .unwrap_or_else(|_| Bot::new(user_id.clone()));
     bot.start_autosave_task(DATA_PATH);
     let bot2 = bot.clone();
 
@@ -129,12 +130,7 @@ pub async fn main(_rt_handle: tokio::runtime::Handle) -> ClientResult<()> {
     )
     .await
     .unwrap();
-
-    ctrlc::set_handler(move || {
-        DID_CTRLC.store(true, Ordering::Relaxed);
-        bot2.save_to(DATA_PATH).expect("couldnt save");
-    })
-    .expect("Can't set Ctrl-C handler");
+    let client2 = client.clone();
 
     // Change our bots status to online and make sure its marked as a bot
     profile::profile_update(
@@ -158,34 +154,43 @@ pub async fn main(_rt_handle: tokio::runtime::Handle) -> ClientResult<()> {
         )
         .await?;
 
+    let ctrlc = async move {
+        tokio::signal::ctrl_c().await.unwrap();
+        bot2.save_to(DATA_PATH).await.expect("couldnt save");
+    };
+
     // Poll events
-    loop {
-        if DID_CTRLC.load(Ordering::Relaxed) {
-            break;
-        }
-        if let Some(Ok(event::Event::SentMessage(sent_message))) = socket.get_event().await {
-            if let Some(message) = sent_message.message {
-                let handler = HarmonyHandler {
-                    id: message.message_id.to_string().into(),
-                    author: message.author_id.to_string().into(),
-                    channel_id: message.channel_id.to_string().into(),
-                    guild_id: (message.guild_id != 0).then(|| message.guild_id.to_string().into()),
-                    referenced_id: (message.in_reply_to != 0)
-                        .then(|| message.in_reply_to.to_string().into()),
-                    client: &client,
-                    message: &message,
-                };
-                perr!(bot.process_args(&handler).await);
+    let poll = async move {
+        loop {
+            if let Some(Ok(event::Event::SentMessage(sent_message))) = socket.get_event().await {
+                if let Some(message) = sent_message.message {
+                    let handler = HarmonyHandler {
+                        id: message.message_id.to_string().into(),
+                        author: message.author_id.to_string().into(),
+                        channel_id: message.channel_id.to_string().into(),
+                        guild_id: (message.guild_id != 0)
+                            .then(|| message.guild_id.to_string().into()),
+                        referenced_id: (message.in_reply_to != 0)
+                            .then(|| message.in_reply_to.to_string().into()),
+                        client: &client,
+                        message: &message,
+                    };
+                    perr!(bot.process_args(&handler).await);
+                }
             }
         }
+    };
+    select! {
+        _ = spawn(poll) => {},
+        _ = spawn(ctrlc) => {
+            // Change our bots status back to offline
+            let _ = profile::profile_update(
+                &client2,
+                ProfileUpdate::default().new_status(UserStatus::Offline),
+            )
+            .await;
+        },
     }
-
-    // Change our bots status back to offline
-    profile::profile_update(
-        &client,
-        ProfileUpdate::default().new_status(UserStatus::Offline),
-    )
-    .await?;
 
     Ok(())
 }

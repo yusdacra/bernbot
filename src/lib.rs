@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     fmt::{self, Debug, Display, Formatter},
+    ops::Not,
     path::Path,
     sync::Arc,
 };
@@ -15,7 +16,7 @@ use smol_str::SmolStr;
 
 #[cfg(feature = "discord")]
 pub mod discord;
-#[cfg(feature = "harmony")]
+#[cfg(all(feature = "harmony", not(feature = "discord")))]
 pub mod harmony;
 
 pub const PREFIX_DEF: &str = "b/";
@@ -104,8 +105,11 @@ impl<E> From<E> for BotError<E> {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MarkovData {
+    #[serde(default)]
     probability: f64,
+    #[serde(default)]
     chain: MChain,
+    #[serde(default)]
     per_user: DashMap<SmolStr, MChain>,
 }
 
@@ -121,8 +125,12 @@ impl Default for MarkovData {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InsultData {
+    #[serde(default)]
     message_id: Option<SmolStr>,
+    #[serde(default)]
     count_passed: u8,
+    #[serde(default)]
+    enabled: bool,
 }
 
 impl Default for InsultData {
@@ -130,15 +138,20 @@ impl Default for InsultData {
         Self {
             message_id: None,
             count_passed: 1,
+            enabled: true,
         }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct BotData {
+    #[serde(default)]
     user_id: SmolStr,
+    #[serde(default)]
     insult_data: DashMap<SmolStr, InsultData>,
+    #[serde(default)]
     mchain: DashMap<SmolStr, MarkovData>,
+    #[serde(default)]
     prefix: DashMap<SmolStr, SmolStr>,
 }
 
@@ -161,8 +174,8 @@ impl Bot {
         }
     }
 
-    pub fn read_from(data_path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
-        let compressed = std::fs::read(data_path)?;
+    pub async fn read_from(data_path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
+        let compressed = tokio::fs::read(data_path).await?;
         let raw = lz4_flex::decompress_size_prepended(&compressed).unwrap();
         let data = ron::de::from_bytes(&raw).expect("failed to parse data");
 
@@ -177,7 +190,7 @@ impl Bot {
         let data_path = data_path.as_ref().to_owned();
         tokio::spawn(async move {
             loop {
-                if let Err(err) = bot.save_to(&data_path) {
+                if let Err(err) = bot.save_to(&data_path).await {
                     tracing::error!("couldnt save bot data: {}", err);
                     break;
                 }
@@ -186,8 +199,8 @@ impl Bot {
         });
     }
 
-    pub fn save_to(&self, data_path: impl AsRef<Path>) -> Result<(), std::io::Error> {
-        std::fs::write(
+    pub async fn save_to(&self, data_path: impl AsRef<Path>) -> Result<(), std::io::Error> {
+        tokio::fs::write(
             data_path,
             lz4_flex::compress_prepend_size(
                 ron::ser::to_string(&self.data)
@@ -195,6 +208,7 @@ impl Bot {
                     .as_bytes(),
             ),
         )
+        .await
     }
 
     pub fn markov_toggle_mark_channel(&self, channel_id: &str) -> SmolStr {
@@ -277,6 +291,14 @@ impl Bot {
                                         } else {
                                             SmolStr::new_inline("no value")
                                         }
+                                    }
+                                    "insult" => {
+                                        if let Some(mut m) =
+                                            self.data.insult_data.get_mut(context_id)
+                                        {
+                                            m.enabled = m.enabled.not();
+                                        }
+                                        SmolStr::new_inline("turned off insults")
                                     }
                                     cmd => {
                                         insulted = true;

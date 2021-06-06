@@ -140,7 +140,7 @@ impl EventHandler for Bot {
     }
 }
 
-pub async fn main(rt_handle: tokio::runtime::Handle) {
+pub async fn main() {
     let token = std::env::var("DISCORD_TOKEN").expect("need token");
 
     let user_id = discord::http::client::Http::new_with_token(&token)
@@ -150,7 +150,9 @@ pub async fn main(rt_handle: tokio::runtime::Handle) {
         .id
         .0
         .to_string();
-    let bot = Bot::read_from(DATA_PATH).unwrap_or_else(|_| Bot::new(user_id.into()));
+    let bot = Bot::read_from(DATA_PATH)
+        .await
+        .unwrap_or_else(|_| Bot::new(user_id.into()));
     let bot2 = bot.clone();
 
     let mut client = Client::builder(token)
@@ -159,12 +161,12 @@ pub async fn main(rt_handle: tokio::runtime::Handle) {
         .expect("Error creating client");
 
     let cc = client.shard_manager.clone();
-    ctrlc::set_handler(move || {
-        rt_handle.block_on(async { cc.lock().await.shutdown_all().await });
-        bot2.save_to(DATA_PATH).expect("couldnt save");
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.unwrap();
+        cc.lock().await.shutdown_all().await;
+        bot2.save_to(DATA_PATH).await.expect("couldnt save");
         std::process::exit(0);
-    })
-    .expect("couldnt set ctrlc handler");
+    });
 
     perr!(client.start().await);
 }

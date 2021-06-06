@@ -40,15 +40,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a2f58b0bb10c380af2b26e57212856b8c9a59e0925b4c20f4a174a49734eaf7"
 
 [[package]]
-name = "async-mutex"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "479db852db25d9dbf6204e6cb6253698f175c15726470f78af0d918e99d6156e"
-dependencies = [
- "event-listener",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -73,22 +64,6 @@ dependencies = [
  "tokio-rustls",
  "tungstenite 0.11.1",
  "webpki-roots 0.20.0",
-]
-
-[[package]]
-name = "async-tungstenite"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07b30ef0ea5c20caaa54baea49514a206308989c68be7ecd86c7f956e4da6378"
-dependencies = [
- "futures-io",
- "futures-util",
- "log",
- "pin-project-lite",
- "tokio",
- "tokio-rustls",
- "tungstenite 0.13.0",
- "webpki-roots 0.21.1",
 ]
 
 [[package]]
@@ -334,12 +309,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "event-listener"
-version = "2.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7531096570974c3a9dcf9e4b8e1cede1ec26cf5046219fb3b9d897503b9be59"
-
-[[package]]
 name = "fixedbitset"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -540,23 +509,24 @@ dependencies = [
 
 [[package]]
 name = "harmony_rust_sdk"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d1720b0d952ddff569d4118c01e532b69cde89e40a7b3fd67a460a58b484d8b"
+checksum = "2e89163b6f008c131b9214cd4d5c99ba8d5d0abb83b78bd78869045287af1945"
 dependencies = [
- "async-mutex",
  "derive-new",
  "derive_more",
  "futures",
  "harmony_derive",
  "hrpc",
  "hrpc-build",
+ "http",
  "parking_lot",
  "paste",
  "prost",
  "prost-types",
  "reqwest",
  "serde",
+ "tokio",
  "tracing",
  "urlencoding",
 ]
@@ -587,28 +557,29 @@ dependencies = [
 
 [[package]]
 name = "hrpc"
-version = "0.6.6"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b6e3a3f7ebad9893c056444643a3f830592d113e9c3c14e6e4ed5cce7f3da63"
+checksum = "ef77ab080195854a7b1766002d479e33f93acf116eb0a49e26b6b2d7b42bc064"
 dependencies = [
  "async-trait",
- "async-tungstenite 0.13.1",
  "bytes 1.0.1",
  "futures-util",
  "http",
  "prost",
  "reqwest",
+ "rustls-native-certs",
  "tokio",
  "tokio-rustls",
+ "tokio-tungstenite",
  "tracing",
  "url",
 ]
 
 [[package]]
 name = "hrpc-build"
-version = "0.3.6"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94910dd78c0200f0dcefc082a0c39c4ee3264e212e5b7a354346639440b61962"
+checksum = "6dbbfadde1f6de2e5fbfa945e4f956e211e85bffd2a1631a4ea71e92f475e0ca"
 dependencies = [
  "proc-macro2",
  "prost",
@@ -1445,7 +1416,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7775b6c4a554e495372cfa5d0e70349c84c62415666cf80c1ea79bc447c78d9"
 dependencies = [
  "async-trait",
- "async-tungstenite 0.11.0",
+ "async-tungstenite",
  "base64 0.13.0",
  "bitflags",
  "bytes 1.0.1",
@@ -1482,6 +1453,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79c719719ee05df97490f80a45acfc99e5a30ce98a1e4fb67aee422745ae14e3"
 dependencies = [
  "lazy_static",
+]
+
+[[package]]
+name = "signal-hook-registry"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e51e73328dc4ac0c7ccbda3a494dfa03df1de2f46018127f60c693f2648455b0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -1618,9 +1598,12 @@ dependencies = [
  "memchr",
  "mio",
  "num_cpus",
+ "once_cell",
  "parking_lot",
  "pin-project-lite",
+ "signal-hook-registry",
  "tokio-macros",
+ "winapi",
 ]
 
 [[package]]
@@ -1643,6 +1626,23 @@ dependencies = [
  "rustls",
  "tokio",
  "webpki",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e96bb520beab540ab664bd5a9cfeaa1fcd846fa68c830b42e2c8963071251d2"
+dependencies = [
+ "futures-util",
+ "log",
+ "pin-project",
+ "rustls",
+ "tokio",
+ "tokio-rustls",
+ "tungstenite 0.13.0",
+ "webpki",
+ "webpki-roots 0.21.1",
 ]
 
 [[package]]

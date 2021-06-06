@@ -20,11 +20,9 @@ fn main() {
         .unwrap();
 
     #[cfg(feature = "discord")]
-    runtime.block_on(bernbot::discord::main(runtime.handle().clone()));
+    runtime.block_on(bernbot::discord::main());
     #[cfg(all(feature = "harmony", not(feature = "discord")))]
-    runtime
-        .block_on(bernbot::harmony::main(runtime.handle().clone()))
-        .unwrap();
+    runtime.block_on(bernbot::harmony::main()).unwrap();
 
     runtime.shutdown_background();
 }
