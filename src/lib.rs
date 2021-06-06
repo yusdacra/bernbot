@@ -637,7 +637,7 @@ fn typo(s: SmolStr, rng: &mut rand::rngs::ThreadRng) -> SmolStr {
     let mut chars = Vec::with_capacity(s.len());
     for ch in s.chars() {
         let ch = if rng.gen_bool(0.5 / 100.0) {
-            rng.gen_range(b'A'..b'z') as char
+            rng.sample(rand::distributions::Alphanumeric) as char
         } else {
             ch
         };
