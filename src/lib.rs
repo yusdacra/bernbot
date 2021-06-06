@@ -111,6 +111,8 @@ pub struct MarkovData {
     chain: MChain,
     #[serde(default)]
     per_user: DashMap<SmolStr, MChain>,
+    #[serde(default)]
+    enabled: bool,
 }
 
 impl Default for MarkovData {
@@ -119,6 +121,7 @@ impl Default for MarkovData {
             probability: 5.0,
             chain: MChain::new(),
             per_user: DashMap::new(),
+            enabled: false,
         }
     }
 }
@@ -212,13 +215,11 @@ impl Bot {
     }
 
     pub fn markov_toggle_mark_channel(&self, channel_id: &str) -> SmolStr {
-        if self.data.mchain.contains_key(channel_id) {
-            self.data.mchain.remove(channel_id);
+        let mut m = self.data.mchain.entry(channel_id.into()).or_default();
+        m.enabled = m.enabled.not();
+        if m.enabled {
             SmolStr::new_inline("unmarked channel")
         } else {
-            self.data
-                .mchain
-                .insert(channel_id.into(), Default::default());
             SmolStr::new_inline("marked channel")
         }
     }
@@ -293,12 +294,17 @@ impl Bot {
                                         }
                                     }
                                     "insult" => {
-                                        if let Some(mut m) =
-                                            self.data.insult_data.get_mut(context_id)
-                                        {
-                                            m.enabled = m.enabled.not();
+                                        let mut m = self
+                                            .data
+                                            .insult_data
+                                            .entry(context_id.into())
+                                            .or_default();
+                                        m.enabled = m.enabled.not();
+                                        if m.enabled {
+                                            SmolStr::new_inline("turned on insults")
+                                        } else {
+                                            SmolStr::new_inline("turned off insults")
                                         }
-                                        SmolStr::new_inline("turned off insults")
                                     }
                                     cmd => {
                                         insulted = true;
@@ -359,6 +365,14 @@ impl Bot {
                                         }
                                     } else {
                                         self.markov_get_prob(handler.channel_id())
+                                    }
+                                }
+                                "clear" => {
+                                    if handler.author_has_manage_perm().await? {
+                                        self.data.mchain.remove(context_id);
+                                        SmolStr::new_inline("cleared data")
+                                    } else {
+                                        NOT_ENOUGH_PERMS.into()
                                     }
                                 }
                                 cmd => {
@@ -444,7 +458,9 @@ impl Bot {
 
     pub fn try_insult(&self, channel_id: &str) -> Option<SmolStr> {
         let mut insult_data = self.insult_entry(channel_id);
-        if rand::thread_rng().gen_bool(0.05 * (insult_data.count_passed as f64) / 100.0) {
+        if insult_data.enabled
+            && rand::thread_rng().gen_bool(0.05 * (insult_data.count_passed as f64) / 100.0)
+        {
             Some(choose_random_insult().into())
         } else {
             insult_data.count_passed = insult_data.count_passed.saturating_add(1);
@@ -502,7 +518,7 @@ impl Bot {
                 .or_default()
                 .feed(&tokens);
             let mut rng = rand::thread_rng();
-            if rng.gen_bool(mlisten.probability / 100.0) {
+            if mlisten.enabled && rng.gen_bool(mlisten.probability / 100.0) {
                 let tokens: ArrayVec<_, 32> = mlisten
                     .chain
                     .generate()
