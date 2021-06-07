@@ -218,9 +218,9 @@ impl Bot {
         let mut m = self.data.mchain.entry(channel_id.into()).or_default();
         m.enabled = m.enabled.not();
         if m.enabled {
-            SmolStr::new_inline("unmarked channel")
-        } else {
             SmolStr::new_inline("marked channel")
+        } else {
+            SmolStr::new_inline("unmarked channel")
         }
     }
 
