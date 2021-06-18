@@ -345,8 +345,12 @@ impl Bot {
                         let text = if let Some(subcmd) = args.next() {
                             match subcmd {
                                 "poem" => self.generate_poem(),
-                                msg if msg.chars().next().unwrap().is_alphabetic() => {
-                                    self.gen_message(handler.channel_id(), Some(msg.into()))
+                                "token" => {
+                                    if let Some(token) = args.next() {
+                                        self.gen_message(handler.channel_id(), Some(token.into()))
+                                    } else {
+                                        SmolStr::new_inline("put a token")
+                                    }
                                 }
                                 user => self.gen_user_message(handler.channel_id(), user),
                             }
