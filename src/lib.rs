@@ -345,10 +345,13 @@ impl Bot {
                         let text = if let Some(subcmd) = args.next() {
                             match subcmd {
                                 "poem" => self.generate_poem(),
+                                msg if msg.chars().next().unwrap().is_alphabetic() => {
+                                    self.gen_message(handler.channel_id(), Some(msg.into()))
+                                }
                                 user => self.gen_user_message(handler.channel_id(), user),
                             }
                         } else {
-                            self.gen_message(handler.channel_id())
+                            self.gen_message(handler.channel_id(), None)
                         };
                         handler.send_message(&text, None, true).await?;
                     }
@@ -497,9 +500,13 @@ impl Bot {
         }
     }
 
-    pub fn gen_message(&self, channel_id: &str) -> SmolStr {
+    pub fn gen_message(&self, channel_id: &str, token: Option<SmolStr>) -> SmolStr {
         if let Some(mlisten) = self.data.mchain.get(channel_id) {
-            let tokens = mlisten.chain.generate();
+            let tokens = if let Some(token) = token {
+                mlisten.chain.generate_from_token(token)
+            } else {
+                mlisten.chain.generate()
+            };
             let mut result = String::with_capacity(tokens.iter().map(SmolStr::len).sum());
             for token in tokens {
                 result.push_str(&token);
