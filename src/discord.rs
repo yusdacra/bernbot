@@ -6,11 +6,11 @@ use super::{perr, Bot};
 use discord::{
     async_trait,
     client::{Client, Context, EventHandler},
-    http::AttachmentType,
     model::{
-        channel::Message,
+        channel::{AttachmentType, Message},
         prelude::{Activity, Ready},
     },
+    prelude::GatewayIntents,
     utils::ContentSafeOptions,
 };
 use rand::Rng;
@@ -36,14 +36,12 @@ impl<'a> Handler for DiscordHandler<'a> {
         Ok(self
             .msg
             .guild(self.ctx)
-            .await
             .ok_or(discord::Error::Model(
                 discord::model::ModelError::GuildNotFound,
             ))?
             .member(self.ctx, self.msg.author.id)
             .await?
-            .permissions(self.ctx)
-            .await?
+            .permissions(self.ctx)?
             .manage_guild())
     }
 
@@ -54,7 +52,7 @@ impl<'a> Handler for DiscordHandler<'a> {
         reply: bool,
     ) -> Result<SmolStr, BotError<Self::Error>> {
         let content =
-            discord::utils::content_safe(self.ctx, text, &ContentSafeOptions::default()).await;
+            discord::utils::content_safe(self.ctx, text, &ContentSafeOptions::default(), &[]);
 
         let typing = self.ctx.http.start_typing(self.msg.channel_id.0).unwrap();
         let millis = rand::thread_rng().gen_range(400..=800);
@@ -76,7 +74,7 @@ impl<'a> Handler for DiscordHandler<'a> {
                 m
             })
             .await?;
-        typing.stop();
+        let _ = typing.stop();
         Ok(msg.id.0.to_string().into())
     }
 
@@ -143,7 +141,7 @@ impl EventHandler for Bot {
 pub async fn main() {
     let token = std::env::var("DISCORD_TOKEN").expect("need token");
 
-    let user_id = discord::http::client::Http::new_with_token(&token)
+    let user_id = discord::http::client::Http::new(&token)
         .get_current_user()
         .await
         .expect("user")
@@ -155,7 +153,7 @@ pub async fn main() {
         .unwrap_or_else(|_| Bot::new(user_id.into()));
     let bot2 = bot.clone();
 
-    let mut client = Client::builder(token)
+    let mut client = Client::builder(token, GatewayIntents::default())
         .event_handler(bot)
         .await
         .expect("Error creating client");

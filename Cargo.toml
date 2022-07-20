@@ -2,12 +2,15 @@
 name = "bernbot"
 version = "0.1.0"
 authors = ["Yusuf Bera Ertan <y.bera003.06@protonmail.com>"]
-edition = "2018"
+edition = "2021"
 license = "GPL3"
 
+[features]
+default = ["discord"]
+
 [dependencies]
-tokio = { version = "1.6", features = ["rt-multi-thread", "macros", "parking_lot", "time", "signal"] }
-discord = { package = "serenity", version = "0.10", optional = true, default-features = false, features = [
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "parking_lot", "time", "signal"] }
+discord = { package = "serenity", version = "0.11", optional = true, default-features = false, features = [
     "http",
     "client",
     "cache",
@@ -17,28 +20,22 @@ discord = { package = "serenity", version = "0.10", optional = true, default-fea
     "gateway",
     "builder",
 ] }
-harmony = { package = "harmony_rust_sdk", version = "0.6", optional = true, default-features = false, features = [
-    "client",
-    "parking_lot",
-] }
 rand = "0.8"
 ctrlc = { version = "3.1", features = ["termination"] }
 markov = { git = "https://github.com/yusdacra/markov.git", branch = "stable", default-features = false, features = ["ahash"] }
 serde = { version = "1", features = ["derive", "rc"] }
-parking_lot = { version = "0.11", features = ["serde"] }
-ron = "0.6"
+parking_lot = { version = "0.12", features = ["serde"] }
+ron = "0.7"
 smol_str = { version = "0.1", features = ["serde"] }
-dashmap = { version = "4.0", features = ["serde"] }
-lz4_flex = "0.8"
+dashmap = { version = "5.0", features = ["serde"] }
+lz4_flex = "0.9"
 tracing = "0.1"
-tracing-subscriber = "0.2"
-tracing-appender = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 fuzzy-matcher = "0.3"
 async-trait = "0.1"
 
 [package.metadata.nix]
 app = true
 build = true
-env.PROTOC = "protoc"
-buildInputs = ["protobuf"]
 systems = ["x86_64-linux", "aarch64-linux"]
