@@ -14,4 +14,4 @@ Why not?
 
 ## Get her here
 
-https://discord.com/api/oauth2/authorize?client_id=751184822126510090&scope=bot&permissions=67488832
+https://discord.com/api/oauth2/authorize?client_id=942560019315048539&scope=bot&permissions=67488832
