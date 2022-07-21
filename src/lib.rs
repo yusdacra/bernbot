@@ -140,7 +140,7 @@ impl Default for InsultData {
         Self {
             message_id: None,
             count_passed: 1,
-            enabled: true,
+            enabled: false,
         }
     }
 }
