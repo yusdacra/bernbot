@@ -293,16 +293,13 @@ impl Bot {
                                         }
                                     }
                                     "insult" => {
-                                        let mut m = self
-                                            .data
-                                            .insult_data
-                                            .entry(context_id.into())
-                                            .or_default();
-                                        m.enabled = m.enabled.not();
+                                        let mut m = self.insult_entry(context_id);
                                         if m.enabled {
-                                            SmolStr::new_inline("turned on insults")
-                                        } else {
+                                            m.enabled = false;
                                             SmolStr::new_inline("turned off insults")
+                                        } else {
+                                            m.enabled = true;
+                                            SmolStr::new_inline("turned on insults")
                                         }
                                     }
                                     cmd => {
