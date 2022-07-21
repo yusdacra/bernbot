@@ -17,6 +17,7 @@ use smol_str::SmolStr;
 #[cfg(feature = "discord")]
 pub mod discord;
 
+pub const AUTO_SAVE_PERIOD: u64 = 5;
 pub const PREFIX_DEF: &str = "b/";
 pub const PRESENCE_DEF: &str = "G-go for it, yay. Mii, nipah~☆";
 pub const CHANNEL_MARK_MSG: &str =
@@ -195,7 +196,7 @@ impl Bot {
                     tracing::error!("couldnt save bot data: {}", err);
                     break;
                 }
-                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(AUTO_SAVE_PERIOD)).await;
             }
         });
     }

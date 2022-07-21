@@ -153,7 +153,7 @@ pub async fn main() {
         .unwrap_or_else(|_| Bot::new(user_id.into()));
     let bot2 = bot.clone();
 
-    let mut client = Client::builder(token, GatewayIntents::default())
+    let mut client = Client::builder(token, GatewayIntents::all())
         .event_handler(bot)
         .await
         .expect("Error creating client");
