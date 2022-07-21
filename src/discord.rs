@@ -42,7 +42,7 @@ impl<'a> Handler for DiscordHandler<'a> {
             .member(self.ctx, self.msg.author.id)
             .await?
             .permissions(self.ctx)?
-            .manage_guild())
+            .manage_webhooks())
     }
 
     async fn send_message(
