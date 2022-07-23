@@ -10,7 +10,10 @@ use std::{
 use async_trait::async_trait;
 use dashmap::DashMap;
 use markov::Chain;
-use rand::{prelude::IteratorRandom, Rng};
+use rand::{
+    prelude::{IteratorRandom, SmallRng},
+    Rng, SeedableRng,
+};
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
@@ -420,18 +423,19 @@ impl Bot {
             } else if let Some(text) = self.try_insult(handler.channel_id()) {
                 let id = handler.send_message(&text, None, true).await?;
                 self.insult(handler.channel_id(), id);
-            } else if let Some(text) = markov {
-                handler.send_message(&text, None, false).await?;
-                while let Some(text) = self.markov_try_gen_message(
+            } else if let Some((text, is_reply)) = markov {
+                let mut rng = rand::rngs::SmallRng::from_entropy();
+                handler.send_message(&text, None, is_reply).await?;
+                while let Some((text, is_reply)) = self.markov_try_gen_message(
                     handler.channel_id(),
                     handler.content(),
                     handler.author(),
                 ) {
-                    if rand::thread_rng().gen_bool(10.0 / 100.0) {
+                    if rng.gen_bool(1.0 / 10.0) {
                         break;
                     }
                     tokio::time::sleep(Duration::from_millis(500)).await;
-                    handler.send_message(&text, None, false).await?;
+                    handler.send_message(&text, None, is_reply).await?;
                 }
             }
         }
@@ -473,7 +477,7 @@ impl Bot {
     pub fn try_insult(&self, channel_id: &str) -> Option<SmolStr> {
         let mut insult_data = self.insult_entry(channel_id);
         if insult_data.enabled
-            && rand::thread_rng().gen_bool(0.05 * (insult_data.count_passed as f64) / 100.0)
+            && get_rng().gen_bool(0.05 * (insult_data.count_passed as f64) / 100.0)
         {
             Some(choose_random_insult().into())
         } else {
@@ -523,7 +527,7 @@ impl Bot {
         channel_id: &str,
         message_content: &str,
         message_author: &str,
-    ) -> Option<SmolStr> {
+    ) -> Option<(SmolStr, bool)> {
         if let Some(mut mlisten) = self.data.mchain.get_mut(channel_id) {
             let mut tokens = message_content
                 .split_whitespace()
@@ -535,12 +539,13 @@ impl Bot {
                 .entry(message_author.into())
                 .or_default()
                 .feed(&tokens);
-            let mut rng = rand::thread_rng();
+            let mut rng = get_rng();
             if mlisten.enabled && rng.gen_bool(mlisten.probability / 100.0) {
-                let start_token = if tokens.is_empty() {
-                    mlisten.chain.iter_for(1).next().unwrap().pop().unwrap()
-                } else {
+                let is_reply = rng.gen_bool(1.0 / 5.0);
+                let start_token = if tokens.is_empty().not() && is_reply {
                     tokens.remove(rng.gen_range(0..tokens.len()))
+                } else {
+                    mlisten.chain.iter_for(1).next().unwrap().pop().unwrap()
                 };
 
                 let mut tokens = mlisten
@@ -569,7 +574,7 @@ impl Bot {
                     result.push_str(&token);
                     result.push(' ');
                 }
-                return Some(result.into());
+                return Some((result.into(), is_reply));
             }
         }
         None
@@ -585,7 +590,7 @@ impl Bot {
         let mut output = String::new();
         let some_tokens = poem_chain.generate();
 
-        let mut rng = rand::thread_rng();
+        let mut rng = get_rng();
         let start_token = some_tokens
             .iter()
             .filter(|c| c.chars().next().unwrap().is_uppercase())
@@ -671,7 +676,7 @@ pub fn choose_random_insult() -> &'static str {
         .expect("always something in insults")
 }
 
-fn typo(s: SmolStr, rng: &mut rand::rngs::ThreadRng) -> SmolStr {
+fn typo(s: SmolStr, rng: &mut impl rand::Rng) -> SmolStr {
     let mut chars = Vec::with_capacity(s.len());
     for ch in s.chars() {
         let ch = if rng.gen_bool(0.5 / 100.0) {
@@ -682,6 +687,10 @@ fn typo(s: SmolStr, rng: &mut rand::rngs::ThreadRng) -> SmolStr {
         chars.push(ch);
     }
     chars.into_iter().collect()
+}
+
+fn get_rng() -> SmallRng {
+    SmallRng::from_entropy()
 }
 
 #[macro_export]
