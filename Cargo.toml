@@ -3,7 +3,7 @@ name = "bernbot"
 version = "0.1.0"
 authors = ["Yusuf Bera Ertan <y.bera003.06@protonmail.com>"]
 edition = "2021"
-license = "GPL3"
+license = "GPLv3"
 
 [features]
 default = ["discord"]
