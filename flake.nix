@@ -10,5 +10,6 @@
   outputs = inputs:
     inputs.nci.lib.makeOutputs {
       root = ./.;
+      systems = ["x86_64-linux"];
     };
 }

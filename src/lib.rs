@@ -20,7 +20,7 @@ use smol_str::SmolStr;
 #[cfg(feature = "discord")]
 pub mod discord;
 
-pub const AUTO_SAVE_PERIOD: u64 = 5;
+pub const AUTO_SAVE_PERIOD: u64 = 60 * 60; // save every hour
 pub const PREFIX_DEF: &str = "b/";
 pub const PRESENCE_DEF: &str = "G-go for it, yay. Mii, nipah~☆";
 pub const CHANNEL_MARK_MSG: &str =
