@@ -21,10 +21,9 @@
         crateName = "bernbot";
         crateOutputs = config.nci.outputs.${crateName};
       in {
-        nci.projects.${crateName}.relPath = "";
-        nci.crates.${crateName} = {
-          export = true;
-        };
+        nci.projects.${crateName}.path = ./.;
+        # nci.crates.${crateName} = {
+        # };
         devShells.default = crateOutputs.devShell;
         packages.default = crateOutputs.packages.release;
       };
